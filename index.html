@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CPU Scheduling Algorithm Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>CPU Scheduling Simulator</h1>
+      <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+    </header>
+
+    <main id="results-container">
+      <section id="process-input">
+        <h2>Process Table</h2>
+        <div class="controls-row">
+          <button id="add-row" type="button" class="btn">Add Row</button>
+          <button id="load-sample" type="button" class="btn btn-secondary">Load Sample</button>
+          <button id="clear-all" type="button" class="btn btn-secondary">Clear All</button>
+          <label for="quantum">Time Quantum:</label>
+          <input type="number" id="quantum" value="4" min="1" class="quantum-input">
+        </div>
+
+        <table class="process-table" role="grid">
+          <thead>
+            <tr>
+              <th style="width: 40px;"></th>
+              <th>Process ID</th>
+              <th>Arrival Time</th>
+              <th.Burst Time</th>
+              <th>Priority</th>
+              <th>Queue</th>
+            </tr>
+          </thead>
+          <tbody id="process-body">
+            <!-- Rows added dynamically -->
+          </tbody>
+        </table>
+
+        <div id="validation-errors" role="alert" aria-live="polite"></div>
+      </section>
+
+      <section id="simulation-controls">
+        <h2>Simulation Controls</h2>
+        <div class="controls-row">
+          <label for="algorithm-select">Algorithm:</label>
+          <select id="algorithm-select">
+            <option value="fcfs">FCFS <span class="preemptive-badge">Non-preemptive</span></option>
+            <option value="sjf">SJF <span class="preemptive-badge">Non-preemptive</span></option>
+            <option value="srtf">SRTF <span class="preemptive-badge">Preemptive</span></option>
+            <option value="priority-nonpreemptive">Priority (NP) <span class="preemptive-badge">Non-preemptive</span></option>
+            <option value="priority-preemptive">Priority (P) <span class="preemptive-badge">Preemptive</span></option>
+            <option value="round-robin">Round Robin <span class="preemptive-badge">Preemptive</span></option>
+            <option value="multilevel-queue">Multilevel Queue <span class="preemptive-badge">Preemptive</span></option>
+            <option value="multilevel-feedback-queue">MLFQ <span class="preemptive-badge">Preemptive</span></option>
+          </select>
+          <button id="run-simulation" type="button" class="btn">Run Simulation</button>
+        </div>
+
+        <div id="comparison-controls" style="margin-top: var(--space-3);">
+          <h3>Compare Algorithms</h3>
+          <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center;">
+            <label><input type="checkbox" value="fcfs"> FCFS</label>
+            <label><input type="checkbox" value="sjf"> SJF</label>
+            <label><input type="checkbox" value="srtf"> SRTF</label>
+            <label><input type="checkbox" value="priority-nonpreemptive"> Priority NP</label>
+            <label><input type="checkbox" value="priority-preemptive"> Priority P</label>
+            <label><input type="checkbox" value="round-robin"> RR</label>
+            <label><input type="checkbox" value="multilevel-queue"> MLQ</label>
+            <label><input type="checkbox" value="multilevel-feedback-queue"> MLFQ</label>
+            <button id="compare-selected" type="button" class="btn">Compare Selected</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="gantt-chart">
+        <h2>Gantt Chart</h2>
+        <div class="gantt-header">
+          <span>Time:</span>
+          <span id="time-labels"></span>
+        </div>
+        <div class="gantt-timeline" id="gantt-timeline">
+          <p>No simulation data. Click "Run Simulation" or load sample data.</p>
+        </div>
+        <div class="gantt-legend" id="gantt-legend">
+          <!-- Legend generated dynamically -->
+        </div>
+      </section>
+
+      <section id="results">
+        <div id="execution-log" role="log" aria-live="polite">
+          <h3>Execution Log</h3>
+          <div id="log-content">
+            <p>Run a simulation to see the execution log.</p>
+          </div>
+        </div>
+
+        <article id="results-table">
+          <h3>Process Results</h3>
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th>PID</th>
+                <th>Arrival</th>
+                <th>Burst</th>
+                <th>Completion</th>
+                <th>Turnaround</th>
+                <th>Waiting</th>
+                <th>Response</th>
+              </tr>
+            </thead>
+            <tbody id="results-body">
+              <tr><td colspan="7" style="text-align: center;">No simulation data.</td></tr>
+            </tbody>
+            <tfoot>
+              <tr class="averages-row">
+                <td>Averages</td>
+                <td id="avg-waiting">-</td>
+                <td id="avg-turnaround">-</td>
+                <td id="avg-response">-</td>
+                <td colspan="2">-</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div id="averages" style="margin-top: var(--space-3);"></div>
+
+          <div id="idle-info" style="margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--color-text-muted);"></div>
+        </article>
+      </section>
+
+      <section id="comparison" role="region" aria-labelledby="comparison-heading">
+        <h2 id="comparison-heading">Algorithm Comparison</h2>
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>Algorithm</th>
+              <th>Avg Waiting</th>
+              <th>Avg Turnaround</th>
+              <th>Avg Response</th>
+              <th>Best?</th>
+            </tr>
+          </thead>
+          <tbody id="comparison-body">
+            <!-- Generated dynamically -->
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer style="margin-top: var(--space-6); padding-top: var(--space-3); border-top: 1px solid var(--color-border); text-align: center; color: var(--color-text-muted); font-size: var(--fs-sm);">
+      <p>CPU Scheduling Algorithm Simulator - PT101 Final Project</p>
+    </footer>
+  </div>
+
+  <script type="module" src="app.js"></script>
+  <script type="module" src="scheduler.js"></script>
+</body>
+</html>
