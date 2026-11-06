@@ -3,164 +3,192 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CPU Scheduling Algorithm Simulator</title>
+  <title>CPU Scheduling Simulator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // Apply saved theme before paint to avoid a flash
+    (function () {
+      var t = localStorage.getItem('theme');
+      if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
 </head>
 <body>
-  <div id="app">
-    <header>
-      <h1>CPU Scheduling Simulator</h1>
-      <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+  <div class="page">
+    <header class="masthead">
+      <div>
+        <h1>CPU Scheduling Simulator</h1>
+        <p class="lede">Enter a workload, pick a scheduling policy, and see when each process gets the CPU.</p>
+      </div>
+      <button id="theme-toggle" class="icon-btn" type="button" aria-label="Switch to dark theme">
+        <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" fill="currentColor"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></g></svg>
+      </button>
     </header>
 
-    <main id="results-container">
-      <section id="process-input">
-        <h2>Process Table</h2>
-        <div class="controls-row">
-          <button id="add-row" type="button" class="btn">Add Row</button>
-          <button id="load-sample" type="button" class="btn btn-secondary">Load Sample</button>
-          <button id="clear-all" type="button" class="btn btn-secondary">Clear All</button>
-          <label for="quantum">Time Quantum:</label>
-          <input type="number" id="quantum" value="4" min="1" class="quantum-input">
+    <main>
+      <!-- Setup: workload + policy -->
+      <div class="setup">
+        <section class="panel" id="workload" aria-labelledby="workload-title">
+          <div class="panel-head">
+            <h2 id="workload-title">Workload</h2>
+            <div class="btn-group">
+              <button id="load-sample" type="button" class="btn btn-quiet">Load sample</button>
+              <button id="clear-all" type="button" class="btn btn-quiet">Clear</button>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table class="process-table" id="process-table">
+              <thead>
+                <tr>
+                  <th scope="col">Process</th>
+                  <th scope="col">Arrival</th>
+                  <th scope="col">Burst</th>
+                  <th scope="col" data-col="priority">Priority</th>
+                  <th scope="col" data-col="queue">Queue</th>
+                  <th scope="col"><span class="visually-hidden">Remove</span></th>
+                </tr>
+              </thead>
+              <tbody id="process-body"></tbody>
+            </table>
+          </div>
+
+          <button id="add-row" type="button" class="btn btn-add">+ Add process</button>
+          <p class="hint" id="column-hint"></p>
+          <ul id="validation-errors" class="errors" role="alert" aria-live="polite"></ul>
+        </section>
+
+        <section class="panel" id="policy" aria-labelledby="policy-title">
+          <div class="panel-head">
+            <h2 id="policy-title">Scheduling policy</h2>
+          </div>
+
+          <fieldset class="algo-list">
+            <legend class="visually-hidden">Algorithm</legend>
+            <label class="algo"><input type="radio" name="algorithm" value="fcfs" checked><span class="algo-name">First come, first served <abbr>FCFS</abbr></span><span class="algo-meta">Runs in arrival order, no interruptions</span></label>
+            <label class="algo"><input type="radio" name="algorithm" value="sjf"><span class="algo-name">Shortest job first <abbr>SJF</abbr></span><span class="algo-meta">Picks the shortest burst, no interruptions</span></label>
+            <label class="algo"><input type="radio" name="algorithm" value="srtf"><span class="algo-name">Shortest remaining time <abbr>SRTF</abbr></span><span class="algo-meta">A shorter arrival takes over the CPU</span></label>
+            <label class="algo"><input type="radio" name="algorithm" value="priority-nonpreemptive"><span class="algo-name">Priority</span><span class="algo-meta">Lowest number goes first, no interruptions</span></label>
+            <label class="algo"><input type="radio" name="algorithm" value="priority-preemptive"><span class="algo-name">Priority, preemptive</span><span class="algo-meta">A higher-priority arrival takes over</span></label>
+            <label class="algo"><input type="radio" name="algorithm" value="round-robin"><span class="algo-name">Round robin <abbr>RR</abbr></span><span class="algo-meta">Each process gets one quantum in turn</span></label>
+            <label class="algo"><input type="radio" name="algorithm" value="multilevel-queue"><span class="algo-name">Multilevel queue <abbr>MLQ</abbr></span><span class="algo-meta">Queue 1 always beats queue 2 and 3</span></label>
+            <label class="algo"><input type="radio" name="algorithm" value="multilevel-feedback-queue"><span class="algo-name">Multilevel feedback <abbr>MLFQ</abbr></span><span class="algo-meta">Processes that use a full quantum drop a level</span></label>
+          </fieldset>
+
+          <div class="run-row">
+            <label class="quantum" id="quantum-field">
+              <span>Time quantum</span>
+              <input type="number" id="quantum" value="4" min="1" inputmode="numeric">
+            </label>
+            <button id="run-simulation" type="button" class="btn btn-primary">Run simulation</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Timeline: the hero -->
+      <section class="panel timeline-panel" id="gantt-chart" aria-labelledby="timeline-title">
+        <div class="panel-head">
+          <h2 id="timeline-title">Timeline</h2>
+          <p class="panel-sub" id="timeline-sub">No run yet</p>
         </div>
-
-        <table class="process-table" role="grid">
-          <thead>
-            <tr>
-              <th style="width: 40px;"></th>
-              <th>Process ID</th>
-              <th>Arrival Time</th>
-              <th.Burst Time</th>
-              <th>Priority</th>
-              <th>Queue</th>
-            </tr>
-          </thead>
-          <tbody id="process-body">
-            <!-- Rows added dynamically -->
-          </tbody>
-        </table>
-
-        <div id="validation-errors" role="alert" aria-live="polite"></div>
-      </section>
-
-      <section id="simulation-controls">
-        <h2>Simulation Controls</h2>
-        <div class="controls-row">
-          <label for="algorithm-select">Algorithm:</label>
-          <select id="algorithm-select">
-            <option value="fcfs">FCFS <span class="preemptive-badge">Non-preemptive</span></option>
-            <option value="sjf">SJF <span class="preemptive-badge">Non-preemptive</span></option>
-            <option value="srtf">SRTF <span class="preemptive-badge">Preemptive</span></option>
-            <option value="priority-nonpreemptive">Priority (NP) <span class="preemptive-badge">Non-preemptive</span></option>
-            <option value="priority-preemptive">Priority (P) <span class="preemptive-badge">Preemptive</span></option>
-            <option value="round-robin">Round Robin <span class="preemptive-badge">Preemptive</span></option>
-            <option value="multilevel-queue">Multilevel Queue <span class="preemptive-badge">Preemptive</span></option>
-            <option value="multilevel-feedback-queue">MLFQ <span class="preemptive-badge">Preemptive</span></option>
-          </select>
-          <button id="run-simulation" type="button" class="btn">Run Simulation</button>
-        </div>
-
-        <div id="comparison-controls" style="margin-top: var(--space-3);">
-          <h3>Compare Algorithms</h3>
-          <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center;">
-            <label><input type="checkbox" value="fcfs"> FCFS</label>
-            <label><input type="checkbox" value="sjf"> SJF</label>
-            <label><input type="checkbox" value="srtf"> SRTF</label>
-            <label><input type="checkbox" value="priority-nonpreemptive"> Priority NP</label>
-            <label><input type="checkbox" value="priority-preemptive"> Priority P</label>
-            <label><input type="checkbox" value="round-robin"> RR</label>
-            <label><input type="checkbox" value="multilevel-queue"> MLQ</label>
-            <label><input type="checkbox" value="multilevel-feedback-queue"> MLFQ</label>
-            <button id="compare-selected" type="button" class="btn">Compare Selected</button>
+        <div id="gantt" class="gantt">
+          <div class="empty">
+            <p>Add processes and run the simulation to draw the timeline.</p>
           </div>
         </div>
-      </section>
-
-      <section id="gantt-chart">
-        <h2>Gantt Chart</h2>
-        <div class="gantt-header">
-          <span>Time:</span>
-          <span id="time-labels"></span>
-        </div>
-        <div class="gantt-timeline" id="gantt-timeline">
-          <p>No simulation data. Click "Run Simulation" or load sample data.</p>
-        </div>
-        <div class="gantt-legend" id="gantt-legend">
-          <!-- Legend generated dynamically -->
+        <div class="gantt-key" id="gantt-key" hidden>
+          <span class="key-item"><span class="key-swatch key-run"></span>Running</span>
+          <span class="key-item"><span class="key-swatch key-wait"></span>Waiting in ready queue</span>
+          <span class="key-item"><span class="key-swatch key-idle"></span>CPU idle</span>
         </div>
       </section>
 
-      <section id="results">
-        <div id="execution-log" role="log" aria-live="polite">
-          <h3>Execution Log</h3>
-          <div id="log-content">
-            <p>Run a simulation to see the execution log.</p>
+      <!-- Results -->
+      <div class="results">
+        <section class="panel" id="results" aria-labelledby="results-title">
+          <div class="panel-head">
+            <h2 id="results-title">Per-process results</h2>
           </div>
-        </div>
+          <dl class="summary" id="summary">
+            <div><dt>Avg. waiting</dt><dd id="avg-waiting">–</dd></div>
+            <div><dt>Avg. turnaround</dt><dd id="avg-turnaround">–</dd></div>
+            <div><dt>Avg. response</dt><dd id="avg-response">–</dd></div>
+            <div><dt>CPU utilisation</dt><dd id="utilisation">–</dd></div>
+          </dl>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Process</th>
+                  <th scope="col">Arrival</th>
+                  <th scope="col">Burst</th>
+                  <th scope="col">Completion</th>
+                  <th scope="col">Turnaround</th>
+                  <th scope="col">Waiting</th>
+                  <th scope="col">Response</th>
+                </tr>
+              </thead>
+              <tbody id="results-body">
+                <tr><td colspan="7" class="empty-cell">Results appear here after a run.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-        <article id="results-table">
-          <h3>Process Results</h3>
-          <table class="results-table">
+        <section class="panel log-panel" id="execution-log" aria-labelledby="log-title">
+          <div class="panel-head">
+            <h2 id="log-title">Event log</h2>
+          </div>
+          <ol id="log-content" class="log" role="log" aria-live="polite">
+            <li class="log-empty">Scheduler events appear here after a run.</li>
+          </ol>
+        </section>
+      </div>
+
+      <!-- Comparison -->
+      <section class="panel" id="comparison" aria-labelledby="comparison-title">
+        <div class="panel-head">
+          <h2 id="comparison-title">Compare policies</h2>
+          <p class="panel-sub">Same workload, different schedulers. Lower is better.</p>
+        </div>
+        <div class="compare-pick" id="comparison-controls">
+          <label class="chip"><input type="checkbox" value="fcfs" checked><span>FCFS</span></label>
+          <label class="chip"><input type="checkbox" value="sjf" checked><span>SJF</span></label>
+          <label class="chip"><input type="checkbox" value="srtf" checked><span>SRTF</span></label>
+          <label class="chip"><input type="checkbox" value="priority-nonpreemptive"><span>Priority</span></label>
+          <label class="chip"><input type="checkbox" value="priority-preemptive"><span>Priority (P)</span></label>
+          <label class="chip"><input type="checkbox" value="round-robin" checked><span>RR</span></label>
+          <label class="chip"><input type="checkbox" value="multilevel-queue"><span>MLQ</span></label>
+          <label class="chip"><input type="checkbox" value="multilevel-feedback-queue"><span>MLFQ</span></label>
+          <button id="compare-selected" type="button" class="btn btn-primary">Compare</button>
+        </div>
+        <p class="hint" id="compare-hint"></p>
+        <div class="table-scroll">
+          <table class="data-table compare-table" id="compare-table" hidden>
             <thead>
               <tr>
-                <th>PID</th>
-                <th>Arrival</th>
-                <th>Burst</th>
-                <th>Completion</th>
-                <th>Turnaround</th>
-                <th>Waiting</th>
-                <th>Response</th>
+                <th scope="col">Policy</th>
+                <th scope="col">Avg. waiting</th>
+                <th scope="col">Avg. turnaround</th>
+                <th scope="col">Avg. response</th>
               </tr>
             </thead>
-            <tbody id="results-body">
-              <tr><td colspan="7" style="text-align: center;">No simulation data.</td></tr>
-            </tbody>
-            <tfoot>
-              <tr class="averages-row">
-                <td>Averages</td>
-                <td id="avg-waiting">-</td>
-                <td id="avg-turnaround">-</td>
-                <td id="avg-response">-</td>
-                <td colspan="2">-</td>
-              </tr>
-            </tfoot>
+            <tbody id="comparison-body"></tbody>
           </table>
-
-          <div id="averages" style="margin-top: var(--space-3);"></div>
-
-          <div id="idle-info" style="margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--color-text-muted);"></div>
-        </article>
-      </section>
-
-      <section id="comparison" role="region" aria-labelledby="comparison-heading">
-        <h2 id="comparison-heading">Algorithm Comparison</h2>
-        <table class="comparison-table">
-          <thead>
-            <tr>
-              <th>Algorithm</th>
-              <th>Avg Waiting</th>
-              <th>Avg Turnaround</th>
-              <th>Avg Response</th>
-              <th>Best?</th>
-            </tr>
-          </thead>
-          <tbody id="comparison-body">
-            <!-- Generated dynamically -->
-          </tbody>
-        </table>
+        </div>
       </section>
     </main>
 
-    <footer style="margin-top: var(--space-6); padding-top: var(--space-3); border-top: 1px solid var(--color-border); text-align: center; color: var(--color-text-muted); font-size: var(--fs-sm);">
-      <p>CPU Scheduling Algorithm Simulator - PT101 Final Project</p>
+    <footer class="colophon">
+      <p>CPU Scheduling Algorithm Simulator, PT101 final project</p>
     </footer>
   </div>
 
   <script type="module" src="app.js"></script>
-  <script type="module" src="scheduler.js"></script>
 </body>
 </html>

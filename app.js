@@ -6,431 +6,422 @@
 
 import { validateProcesses, runScheduler } from './scheduler.js';
 
-// DOM Elements
-const elements = {
-  themeToggle: document.getElementById('theme-toggle'),
-  addRowBtn: document.getElementById('add-row'),
-  loadSampleBtn: document.getElementById('load-sample'),
-  clearAllBtn: document.getElementById('clear-all'),
-  quantumInput: document.getElementById('quantum'),
-  processBody: document.getElementById('process-body'),
-  validationErrors: document.getElementById('validation-errors'),
-  algorithmSelect: document.getElementById('algorithm-select'),
-  runSimulationBtn: document.getElementById('run-simulation'),
-  compareSelectedBtn: document.getElementById('compare-selected'),
-  compareCheckboxes: document.querySelectorAll('.comparison-controls input[type="checkbox"]'),
-  comparisonSection: document.getElementById('comparison'),
-  runSimBtn: document.getElementById('run-simulation'),
-  comparisonBtn: document.getElementById('compare-selected'),
-  ganttTimeline: document.getElementById('gantt-timeline'),
-  timeLabels: document.getElementById('time-labels'),
-  ganttLegend: document.getElementById('gantt-legend'),
-  logContent: document.getElementById('log-content'),
-  resultsBody: document.getElementById('results-body'),
-  avgWaiting: document.getElementById('avg-waiting'),
-  avgTurnaround: document.getElementById('avg-turnaround'),
-  avgResponse: document.getElementById('avg-response'),
-  idleInfo: document.getElementById('idle-info'),
-  comparisonBody: document.getElementById('comparison-body')
+// ============== DOM ==============
+
+const $ = (id) => document.getElementById(id);
+
+const el = {
+  themeToggle: $('theme-toggle'),
+  addRow: $('add-row'),
+  loadSample: $('load-sample'),
+  clearAll: $('clear-all'),
+  processTable: $('process-table'),
+  processBody: $('process-body'),
+  columnHint: $('column-hint'),
+  errors: $('validation-errors'),
+  quantum: $('quantum'),
+  quantumField: $('quantum-field'),
+  run: $('run-simulation'),
+  gantt: $('gantt'),
+  ganttKey: $('gantt-key'),
+  timelineSub: $('timeline-sub'),
+  resultsBody: $('results-body'),
+  avgWaiting: $('avg-waiting'),
+  avgTurnaround: $('avg-turnaround'),
+  avgResponse: $('avg-response'),
+  utilisation: $('utilisation'),
+  log: $('log-content'),
+  compareBtn: $('compare-selected'),
+  compareControls: $('comparison-controls'),
+  compareHint: $('compare-hint'),
+  compareTable: $('compare-table'),
+  compareBody: $('comparison-body')
 };
 
-// State
-let processes = [];
-let lastResult = null;
-let comparisonResults = [];
+const ALGORITHMS = {
+  'fcfs': { name: 'FCFS', full: 'First come, first served' },
+  'sjf': { name: 'SJF', full: 'Shortest job first' },
+  'srtf': { name: 'SRTF', full: 'Shortest remaining time' },
+  'priority-nonpreemptive': { name: 'Priority', full: 'Priority', usesPriority: true },
+  'priority-preemptive': { name: 'Priority (P)', full: 'Priority, preemptive', usesPriority: true },
+  'round-robin': { name: 'RR', full: 'Round robin', usesQuantum: true },
+  'multilevel-queue': { name: 'MLQ', full: 'Multilevel queue', usesQuantum: true, usesQueue: true },
+  'multilevel-feedback-queue': { name: 'MLFQ', full: 'Multilevel feedback queue', usesQuantum: true, usesQueue: true }
+};
 
-// ============== Theme Management ==============
-
-function initTheme() {
-  const savedTheme = localStorage.getItem('theme');
-  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const currentTheme = savedTheme || (systemDark ? 'dark' : 'light');
-  setTheme(currentTheme);
-}
-
-function setTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('theme', theme);
-  elements.themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
-}
-
-elements.themeToggle.addEventListener('click', () => {
-  const current = document.documentElement.getAttribute('data-theme') || 'light';
-  setTheme(current === 'light' ? 'dark' : 'light');
-});
-
-// ============== Process Table Management ==============
-
-let rowCounter = 0;
-
-function addProcessRow(process = null) {
-  const pid = process ? process.pid : `P${++rowCounter}`;
-  const row = document.createElement('tr');
-
-  row.innerHTML = `
-    <td style="text-align: center;">
-      <input type="checkbox" class="remove-checkbox" checked>
-    </td>
-    <td><input type="text" value="${pid}" class="pid-input" readonly></td>
-    <td><input type="number" value="${process?.arrival || 0}" min="0" class="arrival-input"></td>
-    <td><input type="number" value="${process?.burst || 5}" min="1" class="burst-input"></td>
-    <td><input type="number" value="${process?.priority || 1}" min="1" class="priority-input"></td>
-    <td>
-      <select class="queue-input">
-        <option value="1" ${process?.queue === 1 ? 'selected' : ''}>1</option>
-        <option value="2" ${process?.queue === 2 ? 'selected' : ''}>2</option>
-        <option value="3" ${process?.queue === 3 ? 'selected' : ''}>3</option>
-      </select>
-    </td>
-  `;
-
-  elements.processBody.appendChild(row);
-  return pid;
-}
-
-function getProcessData() {
-  const rows = elements.processBody.querySelectorAll('tr');
-  const data = [];
-  let hasRemoveChecked = false;
-
-  rows.forEach(row => {
-    const removeCheckbox = row.querySelector('.remove-checkbox');
-    if (removeCheckbox && !removeCheckbox.checked) {
-      hasRemoveChecked = true;
-      return;
-    }
-
-    const pid = row.querySelector('.pid-input').value.trim();
-    const arrival = parseInt(row.querySelector('.arrival-input').value);
-    const burst = parseInt(row.querySelector('.burst-input').value);
-    const priority = parseInt(row.querySelector('.priority-input').value);
-    const queue = parseInt(row.querySelector('.queue-input').value);
-
-    if (pid) {
-      data.push({ pid, arrival, burst, priority, queue });
-    }
-  });
-
-  // If all rows removed, keep one empty row
-  if (data.length === 0 && rows.length > 0) {
-    addProcessRow();
-    return [];
-  }
-
-  // Update row counter
-  const maxPid = Math.max(...data.map(p => parseInt(p.pid.replace('P', ''))), 0);
-  rowCounter = maxPid;
-
-  return data;
-}
-
-elements.addRowBtn.addEventListener('click', () => {
-  addProcessRow();
-});
-
-elements.clearAllBtn.addEventListener('click', () => {
-  elements.processBody.innerHTML = '';
-  addProcessRow();
-  addProcessRow();
-  processes = [];
-  showValidationErrors([]);
-  hideComparison();
-});
-
-// ============== Validation ==============
-
-function showValidationErrors(errors) {
-  const errorDiv = document.getElementById('validation-errors');
-  errorDiv.textContent = errors.join(', ');
-  errorDiv.style.display = errors.length ? 'block' : 'none';
-}
-
-function validateAndSanitize() {
-  const data = getProcessData();
-  const { valid, errors } = validateProcesses(data, { quantum: parseInt(elements.quantumInput.value) });
-
-  if (!valid) {
-    showValidationErrors(errors);
-    elements.runSimBtn.disabled = true;
-    elements.compareSelectedBtn.disabled = true;
-    return { valid: false, errors };
-  }
-
-  showValidationErrors([]);
-  elements.runSimBtn.disabled = data.length === 0;
-  elements.compareSelectedBtn.disabled = data.length === 0;
-  return { valid: true, data };
-}
-
-// ============== Sample Data ==============
+const PROCESS_COLOURS = 8;
 
 const SAMPLE_DATA = [
   { pid: 'P1', arrival: 0, burst: 5, priority: 2, queue: 1 },
   { pid: 'P2', arrival: 1, burst: 3, priority: 1, queue: 2 },
-  { pid: 'P3', arrival: 2, burst: 8, priority: 3, queue: 3 }
+  { pid: 'P3', arrival: 2, burst: 8, priority: 3, queue: 3 },
+  { pid: 'P4', arrival: 4, burst: 2, priority: 2, queue: 1 }
 ];
 
-elements.loadSampleBtn.addEventListener('click', () => {
-  elements.processBody.innerHTML = '';
-  rowCounter = 0;
-  SAMPLE_DATA.forEach(p => addProcessRow(p));
-  processes = getProcessData();
-  showValidationErrors([]);
+// State
+let pidCounter = 0;
+let hasRun = false;
+
+// ============== Theme ==============
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('theme', theme);
+  el.themeToggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+}
+
+el.themeToggle.addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  setTheme(current === 'dark' ? 'light' : 'dark');
 });
 
-// ============== Sample Data ==============
+// ============== Helpers ==============
 
-elements.loadSampleBtn.addEventListener('click', () => {
-  elements.processBody.innerHTML = '';
-  rowCounter = 0;
+const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 
-  SAMPLE_DATA.forEach(p => {
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function selectedAlgorithm() {
+  return document.querySelector('input[name="algorithm"]:checked').value;
+}
+
+/** Colour is assigned by row order so it stays stable while editing. */
+function colourMap() {
+  const map = new Map();
+  el.processBody.querySelectorAll('tr').forEach((row, i) => {
+    map.set(row.dataset.pid, `var(--p${(i % PROCESS_COLOURS) + 1})`);
+  });
+  return map;
+}
+
+// ============== Workload table ==============
+
+function addProcessRow(p = null) {
+  const pid = p ? p.pid : `P${++pidCounter}`;
+  const row = document.createElement('tr');
+  row.dataset.pid = pid;
+  row.innerHTML = `
+    <td><span class="pid-tag">${escapeHtml(pid)}</span></td>
+    <td><input type="number" class="arrival-input" min="0" inputmode="numeric" value="${p?.arrival ?? 0}" aria-label="${pid} arrival time"></td>
+    <td><input type="number" class="burst-input" min="1" inputmode="numeric" value="${p?.burst ?? 4}" aria-label="${pid} burst time"></td>
+    <td data-cell="priority"><input type="number" class="priority-input" min="1" inputmode="numeric" value="${p?.priority ?? 1}" aria-label="${pid} priority"></td>
+    <td data-cell="queue">
+      <select class="queue-input" aria-label="${pid} queue">
+        <option value="1"${p?.queue === 1 ? ' selected' : ''}>1</option>
+        <option value="2"${p?.queue === 2 ? ' selected' : ''}>2</option>
+        <option value="3"${p?.queue === 3 ? ' selected' : ''}>3</option>
+      </select>
+    </td>
+    <td><button type="button" class="remove-btn" aria-label="Remove ${pid}" title="Remove ${pid}">&times;</button></td>
+  `;
+  el.processBody.appendChild(row);
+  paintRowColours();
+  updateColumnRelevance();
+  return row;
+}
+
+function paintRowColours() {
+  const colours = colourMap();
+  el.processBody.querySelectorAll('tr').forEach((row) => {
+    row.querySelector('.pid-tag').style.setProperty('--c', colours.get(row.dataset.pid));
+  });
+}
+
+function getProcessData() {
+  return Array.from(el.processBody.querySelectorAll('tr')).map((row) => ({
+    pid: row.dataset.pid,
+    arrival: parseInt(row.querySelector('.arrival-input').value, 10),
+    burst: parseInt(row.querySelector('.burst-input').value, 10),
+    priority: parseInt(row.querySelector('.priority-input').value, 10),
+    queue: parseInt(row.querySelector('.queue-input').value, 10)
+  }));
+}
+
+function resetTable(data) {
+  el.processBody.innerHTML = '';
+  pidCounter = 0;
+  data.forEach((p) => {
     addProcessRow(p);
+    pidCounter = Math.max(pidCounter, parseInt(p.pid.replace(/\D/g, ''), 10) || 0);
+  });
+}
+
+el.processBody.addEventListener('click', (e) => {
+  const btn = e.target.closest('.remove-btn');
+  if (!btn) return;
+  const row = btn.closest('tr');
+  const next = row.nextElementSibling || row.previousElementSibling;
+  row.remove();
+  paintRowColours();
+  // Keep keyboard focus in the table after removing a row
+  (next?.querySelector('.remove-btn') || el.addRow).focus();
+  onWorkloadChanged();
+});
+
+el.addRow.addEventListener('click', () => {
+  const row = addProcessRow();
+  row.querySelector('.arrival-input').focus();
+  onWorkloadChanged();
+});
+
+el.loadSample.addEventListener('click', () => {
+  resetTable(SAMPLE_DATA);
+  onWorkloadChanged();
+});
+
+el.clearAll.addEventListener('click', () => {
+  resetTable([]);
+  addProcessRow();
+  hasRun = false;
+  clearOutputs();
+  validate();
+});
+
+// ============== Policy-aware form ==============
+
+function updateColumnRelevance() {
+  const algo = ALGORITHMS[selectedAlgorithm()];
+  const toggle = (col, used) => {
+    el.processTable.querySelectorAll(`[data-col="${col}"], [data-cell="${col}"]`).forEach((n) => {
+      n.classList.toggle('unused', !used);
+    });
+  };
+  toggle('priority', !!algo.usesPriority);
+  toggle('queue', !!algo.usesQueue);
+
+  const ignored = [];
+  if (!algo.usesPriority) ignored.push('priority');
+  if (!algo.usesQueue) ignored.push('queue');
+  el.columnHint.textContent = ignored.length
+    ? `${algo.full} ignores ${ignored.join(' and ')}.`
+    : '';
+
+  el.quantumField.classList.toggle('off', !algo.usesQuantum);
+  el.quantum.disabled = !algo.usesQuantum;
+  el.quantumField.title = algo.usesQuantum ? '' : 'Only used by round robin, MLQ and MLFQ';
+}
+
+document.querySelectorAll('input[name="algorithm"]').forEach((radio) => {
+  radio.addEventListener('change', () => {
+    updateColumnRelevance();
+    if (hasRun) runSimulation(false);
+  });
+});
+
+// ============== Validation ==============
+
+function validate() {
+  const data = getProcessData();
+  const { valid, errors } = validateProcesses(data, { quantum: parseInt(el.quantum.value, 10) });
+
+  // Mark the offending inputs so the error is findable, not just listed
+  el.processBody.querySelectorAll('input').forEach((i) => i.removeAttribute('aria-invalid'));
+  el.quantum.removeAttribute('aria-invalid');
+  errors.forEach((msg) => {
+    const m = msg.match(/^Row (\d+): (\w+)/);
+    if (m) {
+      const row = el.processBody.querySelectorAll('tr')[parseInt(m[1], 10) - 1];
+      const field = { Arrival: '.arrival-input', Burst: '.burst-input', Priority: '.priority-input' }[m[2]];
+      if (row && field) row.querySelector(field).setAttribute('aria-invalid', 'true');
+    } else if (msg.startsWith('Time quantum')) {
+      el.quantum.setAttribute('aria-invalid', 'true');
+    }
   });
 
-  processes = SAMPLE_DATA;
-  showValidationErrors([]);
-});
+  const rows = el.processBody.querySelectorAll('tr');
+  const pretty = errors.map((msg) =>
+    msg.replace(/^Row (\d+):/, (_, n) => `${rows[n - 1]?.dataset.pid ?? 'Row ' + n}:`)
+  );
+  if (data.length === 0) pretty.push('Add at least one process to run the simulation.');
+
+  el.errors.innerHTML = pretty.map((e) => `<li>${escapeHtml(e)}</li>`).join('');
+  const ok = valid && data.length > 0;
+  el.run.disabled = !ok;
+  el.compareBtn.disabled = !ok;
+  return ok ? data : null;
+}
+
+function onWorkloadChanged() {
+  const data = validate();
+  if (data && hasRun) runSimulation(false);
+}
+
+el.processBody.addEventListener('input', onWorkloadChanged);
+el.quantum.addEventListener('input', onWorkloadChanged);
+
+// ============== Rendering ==============
+
+function clearOutputs() {
+  el.gantt.innerHTML = '<div class="empty"><p>Add processes and run the simulation to draw the timeline.</p></div>';
+  el.ganttKey.hidden = true;
+  el.timelineSub.textContent = 'No run yet';
+  el.resultsBody.innerHTML = '<tr><td colspan="7" class="empty-cell">Results appear here after a run.</td></tr>';
+  [el.avgWaiting, el.avgTurnaround, el.avgResponse, el.utilisation].forEach((n) => (n.textContent = '–'));
+  el.log.innerHTML = '<li class="log-empty">Scheduler events appear here after a run.</li>';
+  el.compareTable.hidden = true;
+  el.compareHint.textContent = '';
+}
+
+function renderTimeline(result, data, algoKey, animate) {
+  const colours = colourMap();
+  const total = Math.max(...result.gantt.map((g) => g.end));
+  const step = total <= 30 ? 1 : total <= 60 ? 2 : total <= 150 ? 5 : 10;
+
+  const seg = (g, cls = '') => {
+    const label = g.isIdle ? 'idle' : escapeHtml(g.pid);
+    const style = `--s:${g.start};--e:${g.end};${g.isIdle ? '' : `--c:${colours.get(g.pid)}`}`;
+    const title = g.isIdle ? `Idle ${g.start}–${g.end}` : `${g.pid} runs ${g.start}–${g.end}`;
+    return `<div class="seg ${g.isIdle ? 'idle' : ''} ${cls}" style="${style}" title="${title}">${label}</div>`;
+  };
+
+  // CPU lane
+  let html = `<div class="lane-label cpu">CPU</div><div class="lane cpu-lane">${result.gantt.map((g) => seg(g)).join('')}</div>`;
+
+  // One lane per process: arrival marker, waiting band, run segments
+  data.forEach((p) => {
+    const runs = result.gantt.filter((g) => !g.isIdle && g.pid === p.pid);
+    const done = result.processes.find((r) => r.pid === p.pid)?.completion ?? p.arrival;
+    const c = colours.get(p.pid);
+    html += `<div class="lane-label">${escapeHtml(p.pid)}</div>
+      <div class="lane" style="--c:${c}">
+        <div class="wait" style="--s:${p.arrival};--e:${done}" title="${p.pid} in system ${p.arrival}–${done}"></div>
+        <div class="arrive" style="--s:${p.arrival}" title="${p.pid} arrives at ${p.arrival}"></div>
+        ${runs.map((g) => seg(g)).join('')}
+      </div>`;
+  });
+
+  // Time axis
+  const ticks = [];
+  for (let t = 0; t <= total; t += step) ticks.push(t);
+  if (ticks[ticks.length - 1] !== total) ticks.push(total);
+  html += `<div></div><div class="axis">${ticks
+    .map((t) => `<span class="tick${t === 0 || t === total ? ' edge' : ''}" style="--t:${t}">${t}</span>`)
+    .join('')}</div>`;
+
+  el.gantt.innerHTML = `<div class="gantt-grid${animate ? ' animate' : ''}" style="--units:${total}" role="img" aria-label="${escapeHtml(timelineDescription(result))}">${html}</div>`;
+  el.ganttKey.hidden = false;
+
+  const algo = ALGORITHMS[algoKey];
+  const q = algo.usesQuantum ? `, quantum ${el.quantum.value}` : '';
+  el.timelineSub.textContent = `${algo.full}${q}. Finishes at t = ${total}.`;
+}
+
+function timelineDescription(result) {
+  return 'CPU schedule: ' + result.gantt
+    .map((g) => `${g.isIdle ? 'idle' : g.pid} from ${g.start} to ${g.end}`)
+    .join(', ');
+}
+
+function renderResults(result, data) {
+  const colours = colourMap();
+  const order = new Map(data.map((p, i) => [p.pid, i]));
+  const rows = [...result.processes].sort((a, b) => order.get(a.pid) - order.get(b.pid));
+
+  el.resultsBody.innerHTML = rows.map((p) => `
+    <tr>
+      <td><span class="pid-tag" style="--c:${colours.get(p.pid)}">${escapeHtml(p.pid)}</span></td>
+      <td>${p.arrival}</td>
+      <td>${p.burst}</td>
+      <td>${p.completion}</td>
+      <td>${fmt(p.turnaround)}</td>
+      <td>${fmt(p.waiting)}</td>
+      <td>${fmt(p.response)}</td>
+    </tr>`).join('');
+
+  const a = result.averages;
+  const total = Math.max(...result.gantt.map((g) => g.end));
+  const start = Math.min(...result.gantt.map((g) => g.start));
+  const span = total - start;
+  el.avgWaiting.textContent = a.waiting.toFixed(2);
+  el.avgTurnaround.textContent = a.turnaround.toFixed(2);
+  el.avgResponse.textContent = a.response.toFixed(2);
+  el.utilisation.textContent = span > 0 ? `${Math.round(((span - a.idleTime) / span) * 100)}%` : '–';
+}
+
+function renderLog(result) {
+  if (!result.log.length) {
+    el.log.innerHTML = '<li class="log-empty">This policy produced no events.</li>';
+    return;
+  }
+  el.log.innerHTML = result.log.map((e) => `
+    <li class="log-ev-${escapeHtml(e.event)}">
+      <span class="log-t">${e.time}</span>
+      <span class="log-d">${escapeHtml(e.detail)}</span>
+    </li>`).join('');
+}
 
 // ============== Simulation ==============
 
-function renderGantt(result) {
-  const timeline = elements.ganttTimeline;
-  const timeLabels = elements.timeLabels;
-  const legend = elements.ganttLegend;
-  const logContent = elements.logContent;
+function runSimulation(animate = true) {
+  const data = validate();
+  if (!data) return;
 
-  timeline.innerHTML = '';
-  timeLabels.innerHTML = '';
-  legend.innerHTML = '';
+  const algo = selectedAlgorithm();
+  const result = runScheduler(data, algo, parseInt(el.quantum.value, 10));
+  if (!result.gantt.length) return;
 
-  if (!result || result.gantt.length === 0) return;
+  hasRun = true;
+  renderTimeline(result, data, algo, animate);
+  renderResults(result, data);
+  renderLog(result);
 
-  // Calculate max time
-  const maxTime = Math.max(...result.gantt.map(g => g.end));
-  const timeStep = Math.max(1, Math.floor(maxTime / 10));
+  if (!el.compareTable.hidden) runComparison();
+}
 
-  // Create time labels
-  for (let t = 0; t <= maxTime; t += timeStep) {
-    const span = document.createElement('span');
-    span.textContent = t;
-    span.style.minWidth = '40px';
-    timeLabels.appendChild(span);
+el.run.addEventListener('click', () => {
+  runSimulation(true);
+  if (window.matchMedia('(max-width: 1000px)').matches) {
+    $('gantt-chart').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-
-  // Calculate scale (pixels per time unit)
-  const containerWidth = Math.max(timeline.offsetWidth, 600);
-  const pxPerTime = (containerWidth - 50) / maxTime || 40;
-
-  // Render Gantt blocks
-  const seenPids = new Set();
-
-  result.gantt.forEach(entry => {
-    const block = document.createElement('div');
-    block.className = 'gantt-block' + (entry.isIdle ? ' idle' : '');
-    block.dataset.pid = entry.pid;
-    block.dataset.start = entry.start;
-    block.dataset.end = entry.end;
-
-    const width = (entry.end - entry.start) * pxPerTime;
-    const left = entry.start * pxPerTime;
-
-    block.style.width = Math.max(40, width) + 'px';
-    block.style.left = left + 'px';
-
-    if (!entry.isIdle && entry.pid !== 'IDLE') {
-      block.textContent = entry.pid;
-      if (!seenPids.has(entry.pid)) {
-        seenPids.add(entry.pid);
-        // Add to legend
-        const legendItem = document.createElement('div');
-        legendItem.className = 'legend-item';
-        legendItem.innerHTML = `
-          <div class="legend-color" style="background: ${getProcessColor(entry.pid)}"></div>
-          <span>${entry.pid}</span>
-        `;
-        legend.appendChild(legendItem);
-      }
-    }
-
-    timeline.appendChild(block);
-  });
-
-  // Render log
-  logContent.innerHTML = '';
-  result.log.forEach(entry => {
-    const line = document.createElement('div');
-    line.className = 'log-entry';
-    line.innerHTML = `
-      <span class="log-time">[${entry.time}]</span>
-      <span class="log-event">${entry.event}:</span>
-      ${entry.detail}
-    `;
-    logContent.appendChild(line);
-  });
-}
-
-function getProcessColor(pid) {
-  const colors = [
-    '#2563eb', '#16a34a', '#ea580c', '#9333ea',
-    '#ec4899', '#0891b2', '#65a30d', '#dc2626'
-  ];
-  const num = parseInt(pid.replace('P', '')) || 1;
-  return colors[(num - 1) % colors.length];
-}
-
-function renderResults(result) {
-  const tbody = elements.resultsBody;
-  tbody.innerHTML = '';
-
-  result.processes.forEach(proc => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td class="pid-col">${proc.pid}</td>
-      <td>${proc.arrival}</td>
-      <td>${proc.burst}</td>
-      <td>${proc.completion}</td>
-      <td>${proc.turnaround.toFixed(2)}</td>
-      <td>${proc.waiting.toFixed(2)}</td>
-      <td>${proc.response.toFixed(2)}</td>
-    `;
-    tbody.appendChild(row);
-  });
-
-  // Averages
-  elements.avgWaiting.textContent = result.averages.waiting.toFixed(2);
-  elements.avgTurnaround.textContent = result.averages.turnaround.toFixed(2);
-  elements.avgResponse.textContent = result.averages.response.toFixed(2);
-
-  // Idle time info
-  if (result.averages.idleTime > 0) {
-    elements.idleInfo.textContent = `CPU Idle Time: ${result.averages.idleTime} time units`;
-  } else {
-    elements.idleInfo.textContent = '';
-  }
-}
-
-function renderAverages(result) {
-  const averagesDiv = document.getElementById('averages');
-  averagesDiv.innerHTML = '';
-
-  const stats = [
-    { label: 'Waiting Time', value: result.averages.waiting.toFixed(2) },
-    { label: 'Turnaround Time', value: result.averages.turnaround.toFixed(2) },
-    { label: 'Response Time', value: result.averages.response.toFixed(2) }
-  ];
-
-  stats.forEach(stat => {
-    const div = document.createElement('div');
-    div.className = 'avg-stat';
-    div.innerHTML = `
-      <div class="avg-stat-value">${stat.value}</div>
-      <div class="avg-stat-label">${stat.label}</div>
-    `;
-    averagesDiv.appendChild(div);
-  });
-}
-
-function runSimulation(algorithm) {
-  const { valid, data } = validateAndSanitize();
-
-  if (!valid || data.length === 0) {
-    return;
-  }
-
-  const quantum = parseInt(elements.quantumInput.value);
-  const result = runScheduler(data, algorithm, quantum);
-
-  lastResult = result;
-  renderGantt(result);
-  renderResults(result);
-  renderAverages(result);
-
-  return result;
-}
-
-elements.runSimBtn.addEventListener('click', () => {
-  const algorithm = elements.algorithmSelect.value;
-  runSimulation(algorithm);
 });
 
-// ============== Algorithm Comparison ==============
+// ============== Comparison ==============
 
-function renderComparison(results) {
-  const tbody = elements.comparisonBody;
-  tbody.innerHTML = '';
-
-  if (results.length === 0) return;
-
-  elements.comparisonSection.classList.add('visible');
-
-  // Find min values
-  const minWT = Math.min(...results.map(r => r.averages.waiting));
-  const minTAT = Math.min(...results.map(r => r.averages.turnaround));
-  const minRT = Math.min(...results.map(r => r.averages.response));
-
-  results.forEach(result => {
-    const row = document.createElement('tr');
-    const isBestWT = result.averages.waiting === minWT;
-    const isBestTAT = result.averages.turnaround === minTAT;
-    const isBestRT = result.averages.response === minRT;
-
-    row.innerHTML = `
-      <td>${result.algorithm}</td>
-      <td class="${isBestWT ? 'best-value' : ''}">${result.averages.waiting.toFixed(2)}</td>
-      <td class="${isBestTAT ? 'best-value' : ''}">${result.averages.turnaround.toFixed(2)}</td>
-      <td class="${isBestRT ? 'best-value' : ''}">${result.averages.response.toFixed(2)}</td>
-      <td>${isBestWT || isBestTAT || isBestRT ? '✓ Best' : ''}</td>
-    `;
-    tbody.appendChild(row);
-  });
-}
-
-function hideComparison() {
-  elements.comparisonSection.classList.remove('visible');
-}
-
-elements.compareSelectedBtn.addEventListener('click', () => {
-  const checked = Array.from(document.querySelectorAll('.comparison-controls input[type="checkbox"]:checked'));
-
-  if (checked.length < 2) {
-    alert('Please select at least 2 algorithms to compare');
+function runComparison() {
+  const picked = Array.from(el.compareControls.querySelectorAll('input:checked')).map((c) => c.value);
+  if (picked.length < 2) {
+    el.compareHint.textContent = 'Pick at least two policies to compare.';
+    el.compareTable.hidden = true;
     return;
   }
+  const data = validate();
+  if (!data) return;
 
-  const { valid, data } = validateAndSanitize();
-  if (!valid || data.length === 0) return;
+  el.compareHint.textContent = '';
+  const quantum = parseInt(el.quantum.value, 10);
+  const rows = picked.map((key) => ({ key, ...runScheduler(data, key, quantum).averages }));
+  const metrics = ['waiting', 'turnaround', 'response'];
+  const max = Object.fromEntries(metrics.map((m) => [m, Math.max(...rows.map((r) => r[m]), 0.0001)]));
+  const min = Object.fromEntries(metrics.map((m) => [m, Math.min(...rows.map((r) => r[m]))]));
+  const current = selectedAlgorithm();
 
-  const quantum = parseInt(elements.quantumInput.value);
-  const comparison = checked.map(cb => cb.value).map(algo => {
-    const result = runScheduler(data, algo, quantum);
-    return { algorithm: algo, averages: result.averages };
-  });
+  el.compareBody.innerHTML = rows.map((r) => `
+    <tr class="${r.key === current ? 'current' : ''}">
+      <td title="${ALGORITHMS[r.key].full}">${ALGORITHMS[r.key].name}</td>
+      ${metrics.map((m) => {
+        const best = Math.abs(r[m] - min[m]) < 1e-9;
+        return `<td class="${best ? 'best' : ''}">
+          <div class="bar-cell">
+            <div class="bar"><i style="--w:${(r[m] / max[m]) * 100}%"></i></div>
+            <span class="bar-val"${best ? ' aria-label="' + r[m].toFixed(2) + ', lowest"' : ''}>${r[m].toFixed(2)}</span>
+          </div>
+        </td>`;
+      }).join('')}
+    </tr>`).join('');
+  el.compareTable.hidden = false;
+}
 
-  renderComparison(comparison);
-});
+el.compareBtn.addEventListener('click', runComparison);
 
-// ============== Initialization ==============
+// ============== Init ==============
 
 function init() {
-  // Add initial rows
-  addProcessRow();
-  addProcessRow();
-
-  // Initialize theme
-  initTheme();
-
-  // Validate on input change
-  elements.processBody.addEventListener('input', () => {
-    validateAndSanitize();
-  });
-  elements.quantumInput.addEventListener('input', () => {
-    validateAndSanitize();
-  });
-
-  // Initial validation
-  validateAndSanitize();
+  setTheme(document.documentElement.getAttribute('data-theme') || 'light');
+  resetTable(SAMPLE_DATA);
+  updateColumnRelevance();
+  validate();
 }
 
-// Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', init);
+init();
