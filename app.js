@@ -1,187 +1,160 @@
 /**
  * CPU Scheduling Simulator - UI Logic
- * Handles DOM manipulation, event handling, and rendering
- * Imports: scheduler.js (algorithm functions)
+ * Handles DOM manipulation, event handling, and rendering.
+ * Supports 4 core algorithms: FCFS, SJF, Round Robin, Multilevel Queue.
+ * Written in simple, beginner-friendly JavaScript.
  */
 
 import { validateProcesses, runScheduler } from './scheduler.js';
 
-// ============== DOM ==============
-
-const $ = (id) => document.getElementById(id);
+// Helper function to get an element by ID
+function getElement(id) {
+  return document.getElementById(id);
+}
 
 const el = {
-  themeToggle: $('theme-toggle'),
-  addRow: $('add-row'),
-  loadSample: $('load-sample'),
-  presetBar: $('preset-bar'),
-  presetNote: $('preset-note'),
-  clearAll: $('clear-all'),
-  processTable: $('process-table'),
-  processBody: $('process-body'),
-  columnHint: $('column-hint'),
-  errors: $('validation-errors'),
-  quantum: $('quantum'),
-  quantumField: $('quantum-field'),
-  run: $('run-simulation'),
-  ganttChart: $('gantt-chart'),
-  gantt: $('gantt'),
-  ganttKey: $('gantt-key'),
-  inspector: $('timeline-inspector'),
-  stepPrev: $('step-prev'),
-  stepNext: $('step-next'),
-  inspectorTime: $('inspector-time'),
-  inspectorCpu: $('inspector-cpu'),
-  inspectorQueue: $('inspector-queue'),
-  timelineSub: $('timeline-sub'),
-  resultsBody: $('results-body'),
-  avgWaiting: $('avg-waiting'),
-  avgTurnaround: $('avg-turnaround'),
-  avgResponse: $('avg-response'),
-  utilisation: $('utilisation'),
-  log: $('log-content'),
-  compareBtn: $('compare-selected'),
-  compareControls: $('comparison-controls'),
-  compareHint: $('compare-hint'),
-  compareTable: $('compare-table'),
-  compareBody: $('comparison-body')
+  themeToggle: getElement('theme-toggle'),
+  addRow: getElement('add-row'),
+  loadSample: getElement('load-sample'),
+  clearAll: getElement('clear-all'),
+  processTable: getElement('process-table'),
+  processBody: getElement('process-body'),
+  columnHint: getElement('column-hint'),
+  errors: getElement('validation-errors'),
+  quantum: getElement('quantum'),
+  quantumField: getElement('quantum-field'),
+  run: getElement('run-simulation'),
+  ganttChart: getElement('gantt-chart'),
+  gantt: getElement('gantt'),
+  ganttKey: getElement('gantt-key'),
+  timelineSub: getElement('timeline-sub'),
+  resultsBody: getElement('results-body'),
+  avgWaiting: getElement('avg-waiting'),
+  avgTurnaround: getElement('avg-turnaround'),
+  avgResponse: getElement('avg-response'),
+  utilisation: getElement('utilisation'),
+  compareBtn: getElement('compare-selected'),
+  compareControls: getElement('comparison-controls'),
+  compareHint: getElement('compare-hint'),
+  compareTable: getElement('compare-table'),
+  compareBody: getElement('comparison-body')
 };
 
 const ALGORITHMS = {
   'fcfs': { name: 'FCFS', full: 'First come, first served' },
   'sjf': { name: 'SJF', full: 'Shortest job first' },
-  'srtf': { name: 'SRTF', full: 'Shortest remaining time' },
-  'priority-nonpreemptive': { name: 'Priority', full: 'Priority', usesPriority: true },
-  'priority-preemptive': { name: 'Priority (P)', full: 'Priority, preemptive', usesPriority: true },
   'round-robin': { name: 'RR', full: 'Round robin', usesQuantum: true },
-  'multilevel-queue': { name: 'MLQ', full: 'Multilevel queue', usesQuantum: true, usesQueue: true },
-  'multilevel-feedback-queue': { name: 'MLFQ', full: 'Multilevel feedback queue', usesQuantum: true, usesQueue: true }
+  'multilevel-queue': { name: 'MLQ', full: 'Multilevel queue', usesQuantum: true, usesQueue: true }
 };
 
 const PROCESS_COLOURS = 8;
 
-const PRESETS = {
-  default: {
-    note: 'Balanced workload with staggered arrivals, mixed burst lengths, priorities, and queues.',
-    quantum: 4,
-    data: [
-      { pid: 'P1', arrival: 0, burst: 5, priority: 2, queue: 1 },
-      { pid: 'P2', arrival: 1, burst: 3, priority: 1, queue: 2 },
-      { pid: 'P3', arrival: 2, burst: 8, priority: 3, queue: 3 },
-      { pid: 'P4', arrival: 4, burst: 2, priority: 2, queue: 1 }
-    ]
-  },
-  convoy: {
-    note: 'Convoy effect: P1’s long burst at t = 0 stalls three short jobs under FCFS — compare with SJF or SRTF.',
-    quantum: 4,
-    data: [
-      { pid: 'P1', arrival: 0, burst: 14, priority: 3, queue: 2 },
-      { pid: 'P2', arrival: 1, burst: 2, priority: 1, queue: 1 },
-      { pid: 'P3', arrival: 2, burst: 1, priority: 1, queue: 1 },
-      { pid: 'P4', arrival: 3, burst: 2, priority: 2, queue: 1 }
-    ]
-  },
-  starvation: {
-    note: 'Starvation: a stream of short, high-priority arrivals repeatedly preempts P1 under SRTF and Priority (P).',
-    quantum: 3,
-    data: [
-      { pid: 'P1', arrival: 0, burst: 10, priority: 3, queue: 2 },
-      { pid: 'P2', arrival: 1, burst: 3, priority: 1, queue: 1 },
-      { pid: 'P3', arrival: 3, burst: 3, priority: 1, queue: 1 },
-      { pid: 'P4', arrival: 5, burst: 3, priority: 1, queue: 1 },
-      { pid: 'P5', arrival: 7, burst: 2, priority: 1, queue: 1 }
-    ]
-  },
-  quantum: {
-    note: 'Quantum sensitivity: with quantum = 2, Round Robin gives every process a fast first response.',
-    quantum: 2,
-    data: [
-      { pid: 'P1', arrival: 0, burst: 6, priority: 2, queue: 1 },
-      { pid: 'P2', arrival: 1, burst: 4, priority: 1, queue: 1 },
-      { pid: 'P3', arrival: 2, burst: 9, priority: 3, queue: 2 },
-      { pid: 'P4', arrival: 3, burst: 3, priority: 2, queue: 1 }
-    ]
-  },
-  mlfq: {
-    note: 'MLFQ demotion: P1 uses full quanta and drops from level 1 → 2 → 3 while short arrivals stay responsive.',
-    quantum: 3,
-    data: [
-      { pid: 'P1', arrival: 0, burst: 14, priority: 2, queue: 1 },
-      { pid: 'P2', arrival: 2, burst: 2, priority: 1, queue: 1 },
-      { pid: 'P3', arrival: 6, burst: 3, priority: 1, queue: 1 }
-    ]
-  }
-};
+const SAMPLE_DATA = [
+  { pid: 'P1', arrival: 0, burst: 5, queue: 1 },
+  { pid: 'P2', arrival: 1, burst: 3, queue: 2 },
+  { pid: 'P3', arrival: 2, burst: 8, queue: 3 },
+  { pid: 'P4', arrival: 4, burst: 2, queue: 1 }
+];
 
-// State
+// Global State
 let pidCounter = 0;
 let hasRun = false;
-let lastResult = null;
-let lastData = null;
-let totalTime = 0;
-let inspectedTime = 0;
 
 // ============== Theme ==============
 
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('theme', theme);
-  el.themeToggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+  const ariaLabel = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+  el.themeToggle.setAttribute('aria-label', ariaLabel);
 }
 
-el.themeToggle.addEventListener('click', () => {
+el.themeToggle.addEventListener('click', function () {
   const current = document.documentElement.getAttribute('data-theme') || 'light';
-  setTheme(current === 'dark' ? 'light' : 'dark');
+  if (current === 'dark') {
+    setTheme('light');
+  } else {
+    setTheme('dark');
+  }
 });
 
 // ============== Helpers ==============
 
-const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function formatNumber(n) {
+  if (Number.isInteger(n)) {
+    return String(n);
+  }
+  return n.toFixed(2);
 }
 
-function selectedAlgorithm() {
-  return document.querySelector('input[name="algorithm"]:checked').value;
+function escapeHtml(text) {
+  const str = String(text);
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-/** Colour is assigned by row order so it stays stable while editing. */
-function colourMap() {
-  const map = new Map();
-  el.processBody.querySelectorAll('tr').forEach((row, i) => {
-    map.set(row.dataset.pid, `var(--p${(i % PROCESS_COLOURS) + 1})`);
-  });
-  return map;
+function getSelectedAlgorithm() {
+  const radio = document.querySelector('input[name="algorithm"]:checked');
+  return radio.value;
 }
 
-function setActivePreset(presetKey) {
-  el.presetBar.querySelectorAll('.preset-btn').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.preset === presetKey);
-  });
-  el.presetNote.textContent = presetKey && PRESETS[presetKey] ? PRESETS[presetKey].note : '';
+/** Assigns CSS color variable to each process PID by row position */
+function getProcessColours() {
+  const colours = {};
+  const rows = el.processBody.querySelectorAll('tr');
+  for (let i = 0; i < rows.length; i++) {
+    const pid = rows[i].dataset.pid;
+    const colourNumber = (i % PROCESS_COLOURS) + 1;
+    colours[pid] = 'var(--p' + colourNumber + ')';
+  }
+  return colours;
 }
 
-// ============== Workload table ==============
+// ============== Workload Table ==============
 
-function addProcessRow(p = null) {
-  const pid = p ? p.pid : `P${++pidCounter}`;
+function addProcessRow(p) {
+  let pid = '';
+  if (p && p.pid) {
+    pid = p.pid;
+  } else {
+    pidCounter = pidCounter + 1;
+    pid = 'P' + pidCounter;
+  }
+
+  let arrivalVal = 0;
+  let burstVal = 4;
+  let queueVal = 1;
+
+  if (p) {
+    if (p.arrival !== undefined && p.arrival !== null) arrivalVal = p.arrival;
+    if (p.burst !== undefined && p.burst !== null) burstVal = p.burst;
+    if (p.queue !== undefined && p.queue !== null) queueVal = p.queue;
+  }
+
   const row = document.createElement('tr');
   row.dataset.pid = pid;
-  row.innerHTML = `
-    <td><span class="pid-tag">${escapeHtml(pid)}</span></td>
-    <td><input type="number" class="arrival-input" min="0" inputmode="numeric" value="${p?.arrival ?? 0}" aria-label="${pid} arrival time"></td>
-    <td><input type="number" class="burst-input" min="1" inputmode="numeric" value="${p?.burst ?? 4}" aria-label="${pid} burst time"></td>
-    <td data-cell="priority"><input type="number" class="priority-input" min="1" inputmode="numeric" value="${p?.priority ?? 1}" aria-label="${pid} priority"></td>
-    <td data-cell="queue">
-      <select class="queue-input" aria-label="${pid} queue">
-        <option value="1"${p?.queue === 1 ? ' selected' : ''}>1</option>
-        <option value="2"${p?.queue === 2 ? ' selected' : ''}>2</option>
-        <option value="3"${p?.queue === 3 ? ' selected' : ''}>3</option>
-      </select>
-    </td>
-    <td><button type="button" class="remove-btn" aria-label="Remove ${pid}" title="Remove ${pid}">&times;</button></td>
-  `;
+
+  const q1Selected = (queueVal === 1) ? ' selected' : '';
+  const q2Selected = (queueVal === 2) ? ' selected' : '';
+  const q3Selected = (queueVal === 3) ? ' selected' : '';
+
+  row.innerHTML =
+    '<td><span class="pid-tag">' + escapeHtml(pid) + '</span></td>' +
+    '<td><input type="number" class="arrival-input" min="0" inputmode="numeric" value="' + arrivalVal + '" aria-label="' + pid + ' arrival time"></td>' +
+    '<td><input type="number" class="burst-input" min="1" inputmode="numeric" value="' + burstVal + '" aria-label="' + pid + ' burst time"></td>' +
+    '<td data-cell="queue">' +
+      '<select class="queue-input" aria-label="' + pid + ' queue">' +
+        '<option value="1"' + q1Selected + '>1</option>' +
+        '<option value="2"' + q2Selected + '>2</option>' +
+        '<option value="3"' + q3Selected + '>3</option>' +
+      '</select>' +
+    '</td>' +
+    '<td><button type="button" class="remove-btn" aria-label="Remove ' + pid + '" title="Remove ' + pid + '">&times;</button></td>';
+
   el.processBody.appendChild(row);
   paintRowColours();
   updateColumnRelevance();
@@ -189,497 +162,631 @@ function addProcessRow(p = null) {
 }
 
 function paintRowColours() {
-  const colours = colourMap();
-  el.processBody.querySelectorAll('tr').forEach((row) => {
-    row.querySelector('.pid-tag').style.setProperty('--c', colours.get(row.dataset.pid));
-  });
+  const colours = getProcessColours();
+  const rows = el.processBody.querySelectorAll('tr');
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const pid = row.dataset.pid;
+    const tag = row.querySelector('.pid-tag');
+    if (tag && colours[pid]) {
+      tag.style.setProperty('--c', colours[pid]);
+    }
+  }
 }
 
 function getProcessData() {
-  return Array.from(el.processBody.querySelectorAll('tr')).map((row) => ({
-    pid: row.dataset.pid,
-    arrival: parseInt(row.querySelector('.arrival-input').value, 10),
-    burst: parseInt(row.querySelector('.burst-input').value, 10),
-    priority: parseInt(row.querySelector('.priority-input').value, 10),
-    queue: parseInt(row.querySelector('.queue-input').value, 10)
-  }));
+  const rows = el.processBody.querySelectorAll('tr');
+  const list = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const pid = row.dataset.pid;
+    const arrival = parseInt(row.querySelector('.arrival-input').value, 10);
+    const burst = parseInt(row.querySelector('.burst-input').value, 10);
+    const queue = parseInt(row.querySelector('.queue-input').value, 10);
+
+    list.push({
+      pid: pid,
+      arrival: arrival,
+      burst: burst,
+      priority: 1,
+      queue: queue
+    });
+  }
+  return list;
 }
 
 function resetTable(data) {
   el.processBody.innerHTML = '';
   pidCounter = 0;
-  data.forEach((p) => {
+  for (let i = 0; i < data.length; i++) {
+    const p = data[i];
     addProcessRow(p);
-    pidCounter = Math.max(pidCounter, parseInt(p.pid.replace(/\D/g, ''), 10) || 0);
-  });
+    const num = parseInt(p.pid.replace(/\D/g, ''), 10);
+    if (!isNaN(num) && num > pidCounter) {
+      pidCounter = num;
+    }
+  }
 }
 
-function loadPreset(presetKey) {
-  const preset = PRESETS[presetKey];
-  if (!preset) return;
-  if (preset.quantum) el.quantum.value = String(preset.quantum);
-  resetTable(preset.data);
-  setActivePreset(presetKey);
+function loadSampleWorkload() {
+  el.quantum.value = '4';
+  resetTable(SAMPLE_DATA);
   runSimulation(true);
 }
 
-el.presetBar.addEventListener('click', (e) => {
-  const btn = e.target.closest('.preset-btn');
-  if (!btn) return;
-  loadPreset(btn.dataset.preset);
+el.loadSample.addEventListener('click', function () {
+  loadSampleWorkload();
 });
 
-el.processBody.addEventListener('click', (e) => {
+el.processBody.addEventListener('click', function (e) {
   const btn = e.target.closest('.remove-btn');
   if (!btn) return;
   const row = btn.closest('tr');
   const next = row.nextElementSibling || row.previousElementSibling;
   row.remove();
   paintRowColours();
-  setActivePreset(null);
-  // Keep keyboard focus in the table after removing a row
-  (next?.querySelector('.remove-btn') || el.addRow).focus();
+  if (next && next.querySelector('.remove-btn')) {
+    next.querySelector('.remove-btn').focus();
+  } else {
+    el.addRow.focus();
+  }
   onWorkloadChanged();
 });
 
-el.addRow.addEventListener('click', () => {
+el.addRow.addEventListener('click', function () {
   const row = addProcessRow();
-  setActivePreset(null);
   row.querySelector('.arrival-input').focus();
   onWorkloadChanged();
 });
 
-el.clearAll.addEventListener('click', () => {
+el.clearAll.addEventListener('click', function () {
   resetTable([]);
   addProcessRow();
-  setActivePreset(null);
   hasRun = false;
   clearOutputs();
   validate();
 });
 
-// ============== Policy-aware form ==============
+// ============== Policy-aware Form ==============
 
 function updateColumnRelevance() {
-  const algo = ALGORITHMS[selectedAlgorithm()];
-  const toggle = (col, used) => {
-    el.processTable.querySelectorAll(`[data-col="${col}"], [data-cell="${col}"]`).forEach((n) => {
-      n.classList.toggle('unused', !used);
-    });
-  };
-  toggle('priority', !!algo.usesPriority);
-  toggle('queue', !!algo.usesQueue);
+  const algoKey = getSelectedAlgorithm();
+  const algo = ALGORITHMS[algoKey];
 
-  const ignored = [];
-  if (!algo.usesPriority) ignored.push('priority');
-  if (!algo.usesQueue) ignored.push('queue');
-  el.columnHint.textContent = ignored.length
-    ? `${algo.full} ignores ${ignored.join(' and ')}.`
-    : '';
+  function setColumnUsed(colName, isUsed) {
+    const cells = el.processTable.querySelectorAll('[data-col="' + colName + '"], [data-cell="' + colName + '"]');
+    for (let i = 0; i < cells.length; i++) {
+      if (isUsed) {
+        cells[i].classList.remove('unused');
+      } else {
+        cells[i].classList.add('unused');
+      }
+    }
+  }
 
-  el.quantumField.classList.toggle('off', !algo.usesQuantum);
-  el.quantum.disabled = !algo.usesQuantum;
-  el.quantumField.title = algo.usesQuantum ? '' : 'Only used by round robin, MLQ and MLFQ';
+  setColumnUsed('queue', Boolean(algo.usesQueue));
+
+  if (!algo.usesQueue) {
+    el.columnHint.textContent = algo.full + ' ignores queue.';
+  } else {
+    el.columnHint.textContent = '';
+  }
+
+  if (algo.usesQuantum) {
+    el.quantumField.classList.remove('off');
+    el.quantum.disabled = false;
+    el.quantumField.title = '';
+  } else {
+    el.quantumField.classList.add('off');
+    el.quantum.disabled = true;
+    el.quantumField.title = 'Only used by round robin and MLQ';
+  }
 }
 
-document.querySelectorAll('input[name="algorithm"]').forEach((radio) => {
-  radio.addEventListener('change', () => {
+const algoRadios = document.querySelectorAll('input[name="algorithm"]');
+for (let i = 0; i < algoRadios.length; i++) {
+  algoRadios[i].addEventListener('change', function () {
     updateColumnRelevance();
-    if (hasRun) runSimulation(false);
+    if (hasRun) {
+      runSimulation(false);
+    }
   });
-});
+}
 
 // ============== Validation ==============
 
 function validate() {
   const data = getProcessData();
-  const { valid, errors } = validateProcesses(data, { quantum: parseInt(el.quantum.value, 10) });
+  const quantumVal = parseInt(el.quantum.value, 10);
+  const result = validateProcesses(data, { quantum: quantumVal });
+  const errors = result.errors;
 
-  // Mark the offending inputs so the error is findable, not just listed
-  el.processBody.querySelectorAll('input').forEach((i) => i.removeAttribute('aria-invalid'));
+  // Clear previous error styles
+  const allInputs = el.processBody.querySelectorAll('input');
+  for (let i = 0; i < allInputs.length; i++) {
+    allInputs[i].removeAttribute('aria-invalid');
+  }
   el.quantum.removeAttribute('aria-invalid');
-  errors.forEach((msg) => {
-    const m = msg.match(/^Row (\d+): (\w+)/);
-    if (m) {
-      const row = el.processBody.querySelectorAll('tr')[parseInt(m[1], 10) - 1];
-      const field = { Arrival: '.arrival-input', Burst: '.burst-input', Priority: '.priority-input' }[m[2]];
-      if (row && field) row.querySelector(field).setAttribute('aria-invalid', 'true');
-    } else if (msg.startsWith('Time quantum')) {
-      el.quantum.setAttribute('aria-invalid', 'true');
-    }
-  });
 
   const rows = el.processBody.querySelectorAll('tr');
-  const pretty = errors.map((msg) =>
-    msg.replace(/^Row (\d+):/, (_, n) => `${rows[n - 1]?.dataset.pid ?? 'Row ' + n}:`)
-  );
-  if (data.length === 0) pretty.push('Add at least one process to run the simulation.');
 
-  el.errors.innerHTML = pretty.map((e) => `<li>${escapeHtml(e)}</li>`).join('');
-  const ok = valid && data.length > 0;
-  el.run.disabled = !ok;
-  el.compareBtn.disabled = !ok;
-  return ok ? data : null;
+  for (let i = 0; i < errors.length; i++) {
+    const msg = errors[i];
+    if (msg.indexOf('Time quantum') === 0) {
+      el.quantum.setAttribute('aria-invalid', 'true');
+    } else {
+      const match = msg.match(/^Row (\d+): (\w+)/);
+      if (match) {
+        const rowIdx = parseInt(match[1], 10) - 1;
+        const fieldName = match[2];
+        const row = rows[rowIdx];
+        if (row) {
+          let fieldClass = '';
+          if (fieldName === 'Arrival') fieldClass = '.arrival-input';
+          if (fieldName === 'Burst') fieldClass = '.burst-input';
+          if (fieldClass) {
+            const inputEl = row.querySelector(fieldClass);
+            if (inputEl) inputEl.setAttribute('aria-invalid', 'true');
+          }
+        }
+      }
+    }
+  }
+
+  // Display errors using friendly process IDs
+  const prettyErrors = [];
+  for (let i = 0; i < errors.length; i++) {
+    const msg = errors[i];
+    const match = msg.match(/^Row (\d+):(.*)/);
+    if (match) {
+      const rowIdx = parseInt(match[1], 10) - 1;
+      let label = 'Row ' + match[1];
+      if (rows[rowIdx] && rows[rowIdx].dataset.pid) {
+        label = rows[rowIdx].dataset.pid;
+      }
+      prettyErrors.push(label + ':' + match[2]);
+    } else {
+      prettyErrors.push(msg);
+    }
+  }
+
+  if (data.length === 0) {
+    prettyErrors.push('Add at least one process to run the simulation.');
+  }
+
+  let errorItemsHtml = '';
+  for (let i = 0; i < prettyErrors.length; i++) {
+    errorItemsHtml += '<li>' + escapeHtml(prettyErrors[i]) + '</li>';
+  }
+  el.errors.innerHTML = errorItemsHtml;
+
+  const isValid = result.valid && data.length > 0;
+  el.run.disabled = !isValid;
+
+  if (isValid) {
+    return data;
+  }
+  return null;
 }
 
 function onWorkloadChanged() {
   const data = validate();
-  if (data && hasRun) runSimulation(false);
+  if (data && hasRun) {
+    runSimulation(false);
+  }
 }
 
-el.processBody.addEventListener('input', () => {
-  setActivePreset(null);
-  onWorkloadChanged();
-});
+el.processBody.addEventListener('input', onWorkloadChanged);
 el.quantum.addEventListener('input', onWorkloadChanged);
 
 // ============== Rendering ==============
 
 function clearOutputs() {
-  lastResult = null;
-  lastData = null;
-  totalTime = 0;
-  inspectedTime = 0;
   el.gantt.innerHTML = '<div class="empty"><p>Add processes and run the simulation to draw the timeline.</p></div>';
-  el.inspector.hidden = true;
   el.ganttKey.hidden = true;
   el.timelineSub.textContent = 'No run yet';
   el.resultsBody.innerHTML = '<tr><td colspan="7" class="empty-cell">Results appear here after a run.</td></tr>';
-  [el.avgWaiting, el.avgTurnaround, el.avgResponse, el.utilisation].forEach((n) => (n.textContent = '–'));
-  el.log.innerHTML = '<li class="log-empty">Scheduler events appear here after a run.</li>';
-  el.compareTable.hidden = true;
-  el.compareHint.textContent = '';
+  el.avgWaiting.textContent = '–';
+  el.avgTurnaround.textContent = '–';
+  el.avgResponse.textContent = '–';
+  el.utilisation.textContent = '–';
+  if (el.compareTable) {
+    el.compareTable.hidden = true;
+  }
+  if (el.compareHint) {
+    el.compareHint.textContent = '';
+  }
 }
 
 function renderTimeline(result, data, algoKey, animate) {
-  const colours = colourMap();
-  const total = Math.max(...result.gantt.map((g) => g.end));
-  totalTime = total;
-  const step = total <= 30 ? 1 : total <= 60 ? 2 : total <= 150 ? 5 : 10;
+  const colours = getProcessColours();
 
-  const seg = (g, cls = '') => {
-    const label = g.isIdle ? 'idle' : escapeHtml(g.pid);
-    const style = `--s:${g.start};--e:${g.end};${g.isIdle ? '' : `--c:${colours.get(g.pid)}`}`;
-    const title = g.isIdle ? `Idle ${g.start}–${g.end}` : `${g.pid} runs ${g.start}–${g.end}`;
-    return `<div class="seg ${g.isIdle ? 'idle' : ''} ${cls}" style="${style}" title="${title}">${label}</div>`;
-  };
+  let total = 0;
+  for (let i = 0; i < result.gantt.length; i++) {
+    if (result.gantt[i].end > total) {
+      total = result.gantt[i].end;
+    }
+  }
 
-  // Vertical time cursor line
-  let html = `<div class="cursor-line" id="cursor-line"><span class="cursor-badge" id="cursor-badge">t = 0</span></div>`;
+  let step = 10;
+  if (total <= 30) {
+    step = 1;
+  } else if (total <= 60) {
+    step = 2;
+  } else if (total <= 150) {
+    step = 5;
+  }
+
+  function makeSegmentHtml(g) {
+    let label = '';
+    let style = '--s:' + g.start + ';--e:' + g.end + ';';
+    let title = '';
+    if (g.isIdle) {
+      label = 'idle';
+      title = 'Idle ' + g.start + '–' + g.end;
+    } else {
+      label = escapeHtml(g.pid);
+      style += '--c:' + (colours[g.pid] || '') + ';';
+      title = g.pid + ' runs ' + g.start + '–' + g.end;
+    }
+    const idleClass = g.isIdle ? ' idle' : '';
+    return '<div class="seg' + idleClass + '" style="' + style + '" title="' + title + '">' + label + '</div>';
+  }
+
+  let html = '';
 
   // CPU lane
-  html += `<div class="lane-label cpu">CPU</div><div class="lane cpu-lane" data-lane="cpu">${result.gantt.map((g) => seg(g)).join('')}</div>`;
+  let cpuSegments = '';
+  for (let i = 0; i < result.gantt.length; i++) {
+    cpuSegments += makeSegmentHtml(result.gantt[i]);
+  }
+  html += '<div class="lane-label cpu">CPU</div><div class="lane cpu-lane" data-lane="cpu">' + cpuSegments + '</div>';
 
-  // One lane per process: arrival marker, waiting band, run segments
-  data.forEach((p) => {
-    const runs = result.gantt.filter((g) => !g.isIdle && g.pid === p.pid);
-    const done = result.processes.find((r) => r.pid === p.pid)?.completion ?? p.arrival;
-    const c = colours.get(p.pid);
-    html += `<div class="lane-label">${escapeHtml(p.pid)}</div>
-      <div class="lane" data-lane="${escapeHtml(p.pid)}" style="--c:${c}">
-        <div class="wait" style="--s:${p.arrival};--e:${done}" title="${p.pid} in system ${p.arrival}–${done}"></div>
-        <div class="arrive" style="--s:${p.arrival}" title="${p.pid} arrives at ${p.arrival}"></div>
-        ${runs.map((g) => seg(g)).join('')}
-      </div>`;
-  });
+  // Process lanes
+  for (let i = 0; i < data.length; i++) {
+    const p = data[i];
+    let done = p.arrival;
+    for (let j = 0; j < result.processes.length; j++) {
+      if (result.processes[j].pid === p.pid) {
+        done = result.processes[j].completion;
+        break;
+      }
+    }
+    const c = colours[p.pid] || '';
 
-  // Time axis
-  const ticks = [];
-  for (let t = 0; t <= total; t += step) ticks.push(t);
-  if (ticks[ticks.length - 1] !== total) ticks.push(total);
-  html += `<div></div><div class="axis">${ticks
-    .map((t) => `<span class="tick${t === 0 || t === total ? ' edge' : ''}" style="--t:${t}">${t}</span>`)
-    .join('')}</div>`;
+    let procSegments = '';
+    for (let j = 0; j < result.gantt.length; j++) {
+      const g = result.gantt[j];
+      if (!g.isIdle && g.pid === p.pid) {
+        procSegments += makeSegmentHtml(g);
+      }
+    }
 
-  el.gantt.innerHTML = `<div class="gantt-grid${animate ? ' animate' : ''}" id="gantt-grid" style="--units:${total};--cursor-t:0" role="img" aria-label="${escapeHtml(timelineDescription(result))}">${html}</div>`;
-  el.inspector.hidden = false;
+    html += '<div class="lane-label">' + escapeHtml(p.pid) + '</div>' +
+      '<div class="lane" data-lane="' + escapeHtml(p.pid) + '" style="--c:' + c + '">' +
+        '<div class="wait" style="--s:' + p.arrival + ';--e:' + done + '" title="' + p.pid + ' in system ' + p.arrival + '–' + done + '"></div>' +
+        '<div class="arrive" style="--s:' + p.arrival + '" title="' + p.pid + ' arrives at ' + p.arrival + '"></div>' +
+        procSegments +
+      '</div>';
+  }
+
+  // Time axis ticks
+  let axisHtml = '';
+  for (let t = 0; t <= total; t = t + step) {
+    const edgeClass = (t === 0 || t === total) ? ' edge' : '';
+    axisHtml += '<span class="tick' + edgeClass + '" style="--t:' + t + '">' + t + '</span>';
+  }
+  if (total % step !== 0) {
+    axisHtml += '<span class="tick edge" style="--t:' + total + '">' + total + '</span>';
+  }
+  html += '<div></div><div class="axis">' + axisHtml + '</div>';
+
+  const animateClass = animate ? ' animate' : '';
+  el.gantt.innerHTML = '<div class="gantt-grid' + animateClass + '" id="gantt-grid" style="--units:' + total + '">' + html + '</div>';
   el.ganttKey.hidden = false;
 
   const algo = ALGORITHMS[algoKey];
-  const q = algo.usesQuantum ? `, quantum ${el.quantum.value}` : '';
-  el.timelineSub.textContent = `${algo.full}${q}. Finishes at t = ${total}.`;
+  let qText = '';
+  if (algo.usesQuantum) {
+    qText = ', quantum ' + el.quantum.value;
+  }
+  el.timelineSub.textContent = algo.full + qText + '. Finishes at t = ' + total + '.';
 }
-
-function timelineDescription(result) {
-  return 'CPU schedule: ' + result.gantt
-    .map((g) => `${g.isIdle ? 'idle' : g.pid} from ${g.start} to ${g.end}`)
-    .join(', ');
-}
-
-function setInspectedTime(t, { scrollLog = false } = {}) {
-  if (!lastResult || !lastData) return;
-  const clamped = Math.max(0, Math.min(totalTime, Math.round(t)));
-  inspectedTime = clamped;
-
-  const grid = $('gantt-grid');
-  const badge = $('cursor-badge');
-  if (grid) grid.style.setProperty('--cursor-t', String(clamped));
-  if (badge) badge.textContent = `t = ${clamped}`;
-
-  el.inspectorTime.textContent = `t = ${clamped}`;
-  el.stepPrev.disabled = clamped <= 0;
-  el.stepNext.disabled = clamped >= totalTime;
-
-  const colours = colourMap();
-  const remMap = new Map();
-  const burstMap = new Map();
-
-  lastData.forEach((p) => {
-    const executed = lastResult.gantt
-      .filter((g) => !g.isIdle && g.pid === p.pid)
-      .reduce((sum, g) => sum + Math.max(0, Math.min(clamped, g.end) - g.start), 0);
-    remMap.set(p.pid, Math.max(0, p.burst - executed));
-    burstMap.set(p.pid, p.burst);
-  });
-
-  const activeSeg = clamped < totalTime
-    ? lastResult.gantt.find((g) => g.start <= clamped && clamped < g.end)
-    : null;
-  const runningPid = activeSeg && !activeSeg.isIdle ? activeSeg.pid : null;
-
-  if (clamped >= totalTime) {
-    el.inspectorCpu.innerHTML = `<span class="inspector-meta">All processes finished at t = ${totalTime}</span>`;
-  } else if (!activeSeg || activeSeg.isIdle) {
-    el.inspectorCpu.innerHTML = `<span class="inspector-meta">Idle (${activeSeg ? `${activeSeg.start}–${activeSeg.end}` : `t = ${clamped}`})</span>`;
-  } else {
-    const c = colours.get(runningPid);
-    const rem = remMap.get(runningPid);
-    const burst = burstMap.get(runningPid);
-    el.inspectorCpu.innerHTML = `<span class="pid-tag" style="--c:${c}">${escapeHtml(runningPid)}</span><span class="inspector-meta">running (${activeSeg.start}–${activeSeg.end}, rem ${rem} of ${burst})</span>`;
-  }
-
-  const waitingProcs = clamped < totalTime
-    ? lastData.filter((p) => p.arrival <= clamped && remMap.get(p.pid) > 0 && p.pid !== runningPid)
-    : [];
-
-  if (!waitingProcs.length) {
-    el.inspectorQueue.innerHTML = `<span class="inspector-meta">Empty</span>`;
-  } else {
-    el.inspectorQueue.innerHTML = `<span class="queue-chips">${waitingProcs
-      .map((p) => `<span class="q-chip" style="--c:${colours.get(p.pid)}">${escapeHtml(p.pid)} <small>rem ${remMap.get(p.pid)}</small></span>`)
-      .join('')}</span>`;
-  }
-
-  // Highlight active process in Per-process results
-  el.resultsBody.querySelectorAll('tr[data-pid]').forEach((row) => {
-    row.classList.toggle('active-proc', row.dataset.pid === runningPid);
-  });
-
-  // Highlight matching events in Event log
-  let firstMatch = null;
-  el.log.querySelectorAll('li[data-time]').forEach((li) => {
-    const match = Number(li.dataset.time) === clamped;
-    li.classList.toggle('active-time', match);
-    if (match && !firstMatch) firstMatch = li;
-  });
-  if (scrollLog && firstMatch) {
-    firstMatch.scrollIntoView({ block: 'nearest' });
-  }
-}
-
-el.gantt.addEventListener('pointermove', (e) => {
-  if (!lastResult) return;
-  const lane = e.target.closest('.lane');
-  if (!lane) return;
-  const rect = lane.getBoundingClientRect();
-  if (rect.width <= 0) return;
-  const ratio = (e.clientX - rect.left) / rect.width;
-  setInspectedTime(ratio * totalTime, { scrollLog: true });
-});
-
-el.stepPrev.addEventListener('click', () => {
-  setInspectedTime(inspectedTime - 1, { scrollLog: true });
-});
-
-el.stepNext.addEventListener('click', () => {
-  setInspectedTime(inspectedTime + 1, { scrollLog: true });
-});
-
-el.ganttChart.addEventListener('keydown', (e) => {
-  if (!lastResult) return;
-  if (e.key === 'ArrowLeft') {
-    e.preventDefault();
-    setInspectedTime(inspectedTime - 1, { scrollLog: true });
-  } else if (e.key === 'ArrowRight') {
-    e.preventDefault();
-    setInspectedTime(inspectedTime + 1, { scrollLog: true });
-  }
-});
-
-el.log.addEventListener('click', (e) => {
-  const li = e.target.closest('li[data-time]');
-  if (!li) return;
-  setInspectedTime(Number(li.dataset.time), { scrollLog: false });
-});
 
 function renderResults(result, data) {
-  const colours = colourMap();
-  const order = new Map(data.map((p, i) => [p.pid, i]));
-  const rows = [...result.processes].sort((a, b) => order.get(a.pid) - order.get(b.pid));
+  const colours = getProcessColours();
 
-  el.resultsBody.innerHTML = rows.map((p) => `
-    <tr data-pid="${escapeHtml(p.pid)}">
-      <td><span class="pid-tag" style="--c:${colours.get(p.pid)}">${escapeHtml(p.pid)}</span></td>
-      <td>${p.arrival}</td>
-      <td>${p.burst}</td>
-      <td>${p.completion}</td>
-      <td>${fmt(p.turnaround)}</td>
-      <td>${fmt(p.waiting)}</td>
-      <td>${fmt(p.response)}</td>
-    </tr>`).join('');
+  let rowsHtml = '';
+  for (let i = 0; i < data.length; i++) {
+    const pInput = data[i];
+    let p = null;
+    for (let j = 0; j < result.processes.length; j++) {
+      if (result.processes[j].pid === pInput.pid) {
+        p = result.processes[j];
+        break;
+      }
+    }
+    if (!p) continue;
+
+    rowsHtml += '<tr data-pid="' + escapeHtml(p.pid) + '">' +
+      '<td><span class="pid-tag" style="--c:' + (colours[p.pid] || '') + '">' + escapeHtml(p.pid) + '</span></td>' +
+      '<td>' + p.arrival + '</td>' +
+      '<td>' + p.burst + '</td>' +
+      '<td>' + p.completion + '</td>' +
+      '<td>' + formatNumber(p.turnaround) + '</td>' +
+      '<td>' + formatNumber(p.waiting) + '</td>' +
+      '<td>' + formatNumber(p.response) + '</td>' +
+    '</tr>';
+  }
+  el.resultsBody.innerHTML = rowsHtml;
 
   const a = result.averages;
-  const total = Math.max(...result.gantt.map((g) => g.end));
-  const start = Math.min(...result.gantt.map((g) => g.start));
-  const span = total - start;
+  let totalTime = 0;
+  let startTime = Infinity;
+  for (let i = 0; i < result.gantt.length; i++) {
+    if (result.gantt[i].end > totalTime) {
+      totalTime = result.gantt[i].end;
+    }
+    if (result.gantt[i].start < startTime) {
+      startTime = result.gantt[i].start;
+    }
+  }
+  const span = totalTime - startTime;
+  const busyTime = span - a.idleTime;
+
   el.avgWaiting.textContent = a.waiting.toFixed(2);
   el.avgTurnaround.textContent = a.turnaround.toFixed(2);
   el.avgResponse.textContent = a.response.toFixed(2);
-  el.utilisation.textContent = span > 0 ? `${Math.round(((span - a.idleTime) / span) * 100)}%` : '–';
-}
 
-function renderLog(result) {
-  if (!result.log.length) {
-    el.log.innerHTML = '<li class="log-empty">This policy produced no events.</li>';
-    return;
+  // CPU Utilisation percentage = (busyTime / totalTime) * 100
+  if (span > 0) {
+    const utilisationRate = (busyTime / span) * 100;
+    el.utilisation.textContent = Math.round(utilisationRate) + '%';
+  } else {
+    el.utilisation.textContent = '–';
   }
-  el.log.innerHTML = result.log.map((e) => `
-    <li class="log-ev-${escapeHtml(e.event)}" data-time="${e.time}" title="Inspect t = ${e.time}">
-      <span class="log-t">${e.time}</span>
-      <span class="log-d">${escapeHtml(e.detail)}</span>
-    </li>`).join('');
 }
 
 // ============== Simulation ==============
 
-function runSimulation(animate = true) {
+function runSimulation(animate) {
+  if (animate === undefined) animate = true;
+
   const data = validate();
   if (!data) return;
 
-  const algo = selectedAlgorithm();
-  const result = runScheduler(data, algo, parseInt(el.quantum.value, 10));
-  if (!result.gantt.length) return;
+  const algo = getSelectedAlgorithm();
+  const quantum = parseInt(el.quantum.value, 10);
+  const result = runScheduler(data, algo, quantum);
+
+  if (result.gantt.length === 0) return;
 
   hasRun = true;
-  lastResult = result;
-  lastData = data;
   renderTimeline(result, data, algo, animate);
   renderResults(result, data);
-  renderLog(result);
-  setInspectedTime(Math.min(inspectedTime, totalTime));
   runComparison();
 }
 
-el.run.addEventListener('click', () => {
+el.run.addEventListener('click', function () {
   runSimulation(true);
   if (window.matchMedia('(max-width: 1000px)').matches) {
-    $('gantt-chart').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    getElement('gantt-chart').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 });
 
 // ============== Comparison ==============
 
 function updateCompareBtnLabel() {
-  const boxes = Array.from(el.compareControls.querySelectorAll('input[type="checkbox"]'));
-  const allChecked = boxes.every((c) => c.checked);
-  el.compareBtn.textContent = allChecked ? 'Default selection' : 'Select all';
-}
-
-function runComparison() {
-  updateCompareBtnLabel();
-  const picked = Array.from(el.compareControls.querySelectorAll('input:checked')).map((c) => c.value);
-  if (picked.length < 2) {
-    el.compareHint.textContent = 'Pick at least two policies to compare.';
-    el.compareTable.hidden = true;
-    return;
+  if (!el.compareControls || !el.compareBtn) return;
+  const boxes = el.compareControls.querySelectorAll('input[type="checkbox"]');
+  let allChecked = true;
+  for (let i = 0; i < boxes.length; i++) {
+    if (!boxes[i].checked) {
+      allChecked = false;
+      break;
+    }
   }
-  const data = validate();
-  if (!data) return;
-
-  el.compareHint.textContent = '';
-  const colours = colourMap();
-  const quantum = parseInt(el.quantum.value, 10);
-  const runs = picked.map((key) => {
-    const res = runScheduler(data, key, quantum);
-    const end = Math.max(...res.gantt.map((g) => g.end), 1);
-    return { key, gantt: res.gantt, end, ...res.averages };
-  });
-  const maxEnd = Math.max(...runs.map((r) => r.end), 1);
-  const metrics = ['waiting', 'turnaround', 'response'];
-  const max = Object.fromEntries(metrics.map((m) => [m, Math.max(...runs.map((r) => r[m]), 0.0001)]));
-  const min = Object.fromEntries(metrics.map((m) => [m, Math.min(...runs.map((r) => r[m]))]));
-  const current = selectedAlgorithm();
-
-  el.compareBody.innerHTML = runs.map((r) => {
-    const miniSegs = r.gantt.map((g) => {
-      const style = `--s:${g.start};--e:${g.end};${g.isIdle ? '' : `--c:${colours.get(g.pid)}`}`;
-      const title = g.isIdle ? `Idle ${g.start}–${g.end}` : `${g.pid}: ${g.start}–${g.end}`;
-      return `<span class="mini-seg${g.isIdle ? ' idle' : ''}" style="${style}" title="${title}"></span>`;
-    }).join('');
-
-    return `
-      <tr class="${r.key === current ? 'current' : ''}" data-algo="${r.key}" tabindex="0" title="Switch timeline to ${ALGORITHMS[r.key].full}">
-        <td>${ALGORITHMS[r.key].name}</td>
-        <td class="col-schedule">
-          <div class="mini-gantt" style="--units:${maxEnd}">${miniSegs}</div>
-        </td>
-        ${metrics.map((m) => {
-          const best = Math.abs(r[m] - min[m]) < 1e-9;
-          return `<td class="${best ? 'best' : ''}">
-            <div class="bar-cell">
-              <div class="bar"><i style="--w:${(r[m] / max[m]) * 100}%"></i></div>
-              <span class="bar-val"${best ? ' aria-label="' + r[m].toFixed(2) + ', lowest"' : ''}>${r[m].toFixed(2)}</span>
-            </div>
-          </td>`;
-        }).join('')}
-      </tr>`;
-  }).join('');
-  el.compareTable.hidden = false;
-}
-
-el.compareControls.addEventListener('change', (e) => {
-  if (e.target.matches('input[type="checkbox"]')) {
-    runComparison();
+  if (allChecked) {
+    el.compareBtn.textContent = 'Deselect all';
+  } else {
+    el.compareBtn.textContent = 'Select all';
   }
-});
-
-el.compareBtn.addEventListener('click', () => {
-  const boxes = Array.from(el.compareControls.querySelectorAll('input[type="checkbox"]'));
-  const allChecked = boxes.every((c) => c.checked);
-  const defaults = new Set(['fcfs', 'sjf', 'srtf', 'round-robin']);
-  boxes.forEach((c) => {
-    c.checked = allChecked ? defaults.has(c.value) : true;
-  });
-  runComparison();
-});
+}
 
 function selectPolicyFromComparison(algoKey) {
-  const radio = document.querySelector(`input[name="algorithm"][value="${algoKey}"]`);
+  const radio = document.querySelector('input[name="algorithm"][value="' + algoKey + '"]');
   if (!radio) return;
   radio.checked = true;
   updateColumnRelevance();
   runSimulation(true);
 }
 
-el.compareBody.addEventListener('click', (e) => {
-  const row = e.target.closest('tr[data-algo]');
-  if (!row) return;
-  selectPolicyFromComparison(row.dataset.algo);
-});
+function runComparison() {
+  if (!el.compareControls || !el.compareTable) return;
+  updateCompareBtnLabel();
 
-el.compareBody.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const row = e.target.closest('tr[data-algo]');
-  if (!row) return;
-  e.preventDefault();
-  selectPolicyFromComparison(row.dataset.algo);
-});
+  const boxes = el.compareControls.querySelectorAll('input[type="checkbox"]');
+  const picked = [];
+  for (let i = 0; i < boxes.length; i++) {
+    if (boxes[i].checked) {
+      picked.push(boxes[i].value);
+    }
+  }
+
+  if (picked.length < 2) {
+    el.compareHint.textContent = 'Pick at least two policies to compare.';
+    el.compareTable.hidden = true;
+    return;
+  }
+
+  const data = validate();
+  if (!data) return;
+
+  el.compareHint.textContent = '';
+  const colours = getProcessColours();
+  const quantum = parseInt(el.quantum.value, 10);
+
+  // Run each selected algorithm
+  const runs = [];
+  let maxEnd = 1;
+  for (let i = 0; i < picked.length; i++) {
+    const key = picked[i];
+    const res = runScheduler(data, key, quantum);
+    let runEnd = 1;
+    for (let j = 0; j < res.gantt.length; j++) {
+      if (res.gantt[j].end > runEnd) {
+        runEnd = res.gantt[j].end;
+      }
+    }
+    if (runEnd > maxEnd) {
+      maxEnd = runEnd;
+    }
+    runs.push({
+      key: key,
+      gantt: res.gantt,
+      end: runEnd,
+      waiting: res.averages.waiting,
+      turnaround: res.averages.turnaround,
+      response: res.averages.response
+    });
+  }
+
+  // Find max and min for the metrics to draw comparative bars
+  let maxWaiting = 0.0001;
+  let minWaiting = Infinity;
+  let maxTurnaround = 0.0001;
+  let minTurnaround = Infinity;
+  let maxResponse = 0.0001;
+  let minResponse = Infinity;
+
+  for (let i = 0; i < runs.length; i++) {
+    const r = runs[i];
+    if (r.waiting > maxWaiting) maxWaiting = r.waiting;
+    if (r.waiting < minWaiting) minWaiting = r.waiting;
+
+    if (r.turnaround > maxTurnaround) maxTurnaround = r.turnaround;
+    if (r.turnaround < minTurnaround) minTurnaround = r.turnaround;
+
+    if (r.response > maxResponse) maxResponse = r.response;
+    if (r.response < minResponse) minResponse = r.response;
+  }
+
+  const currentAlgo = getSelectedAlgorithm();
+
+  let rowsHtml = '';
+  for (let i = 0; i < runs.length; i++) {
+    const r = runs[i];
+
+    // Mini Gantt bar segments
+    let miniSegs = '';
+    for (let j = 0; j < r.gantt.length; j++) {
+      const g = r.gantt[j];
+      let style = '--s:' + g.start + ';--e:' + g.end + ';';
+      let title = '';
+      if (g.isIdle) {
+        title = 'Idle ' + g.start + '–' + g.end;
+      } else {
+        style += '--c:' + (colours[g.pid] || '') + ';';
+        title = g.pid + ': ' + g.start + '–' + g.end;
+      }
+      const idleClass = g.isIdle ? ' idle' : '';
+      miniSegs += '<span class="mini-seg' + idleClass + '" style="' + style + '" title="' + title + '"></span>';
+    }
+
+    const isCurrent = (r.key === currentAlgo) ? ' class="current"' : '';
+    const algoInfo = ALGORITHMS[r.key];
+
+    // Determine if this policy has the best (lowest) value
+    const isBestWaiting = Math.abs(r.waiting - minWaiting) < 0.00001;
+    const isBestTurnaround = Math.abs(r.turnaround - minTurnaround) < 0.00001;
+    const isBestResponse = Math.abs(r.response - minResponse) < 0.00001;
+
+    const waitPct = (r.waiting / maxWaiting) * 100;
+    const turnPct = (r.turnaround / maxTurnaround) * 100;
+    const respPct = (r.response / maxResponse) * 100;
+
+    const waitBestClass = isBestWaiting ? 'best' : '';
+    const turnBestClass = isBestTurnaround ? 'best' : '';
+    const respBestClass = isBestResponse ? 'best' : '';
+
+    rowsHtml +=
+      '<tr' + isCurrent + ' data-algo="' + r.key + '" tabindex="0" title="Switch timeline to ' + algoInfo.full + '">' +
+        '<td>' + algoInfo.name + '</td>' +
+        '<td class="col-schedule">' +
+          '<div class="mini-gantt" style="--units:' + maxEnd + '">' + miniSegs + '</div>' +
+        '</td>' +
+        '<td class="' + waitBestClass + '">' +
+          '<div class="bar-cell">' +
+            '<div class="bar"><i style="--w:' + waitPct + '%"></i></div>' +
+            '<span class="bar-val">' + r.waiting.toFixed(2) + '</span>' +
+          '</div>' +
+        '</td>' +
+        '<td class="' + turnBestClass + '">' +
+          '<div class="bar-cell">' +
+            '<div class="bar"><i style="--w:' + turnPct + '%"></i></div>' +
+            '<span class="bar-val">' + r.turnaround.toFixed(2) + '</span>' +
+          '</div>' +
+        '</td>' +
+        '<td class="' + respBestClass + '">' +
+          '<div class="bar-cell">' +
+            '<div class="bar"><i style="--w:' + respPct + '%"></i></div>' +
+            '<span class="bar-val">' + r.response.toFixed(2) + '</span>' +
+          '</div>' +
+        '</td>' +
+      '</tr>';
+  }
+
+  el.compareBody.innerHTML = rowsHtml;
+  el.compareTable.hidden = false;
+}
+
+if (el.compareControls) {
+  el.compareControls.addEventListener('change', function (e) {
+    if (e.target.matches('input[type="checkbox"]')) {
+      runComparison();
+    }
+  });
+}
+
+if (el.compareBtn) {
+  el.compareBtn.addEventListener('click', function () {
+    const boxes = el.compareControls.querySelectorAll('input[type="checkbox"]');
+    let allChecked = true;
+    for (let i = 0; i < boxes.length; i++) {
+      if (!boxes[i].checked) {
+        allChecked = false;
+        break;
+      }
+    }
+    for (let i = 0; i < boxes.length; i++) {
+      boxes[i].checked = !allChecked;
+    }
+    runComparison();
+  });
+}
+
+if (el.compareBody) {
+  el.compareBody.addEventListener('click', function (e) {
+    const row = e.target.closest('tr[data-algo]');
+    if (!row) return;
+    selectPolicyFromComparison(row.dataset.algo);
+  });
+
+  el.compareBody.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const row = e.target.closest('tr[data-algo]');
+    if (!row) return;
+    e.preventDefault();
+    selectPolicyFromComparison(row.dataset.algo);
+  });
+}
 
 // ============== Init ==============
 
 function init() {
-  setTheme(document.documentElement.getAttribute('data-theme') || 'light');
-  loadPreset('default');
+  const savedTheme = document.documentElement.getAttribute('data-theme') || 'light';
+  setTheme(savedTheme);
+  loadSampleWorkload();
 }
 
 init();

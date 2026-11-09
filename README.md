@@ -1,97 +1,61 @@
 # CPU Scheduling Algorithm Simulator
 
-A vanilla HTML/CSS/JavaScript simulator for comparing 8 CPU scheduling algorithms, built for PT101 Platform Technologies final project.
+A vanilla HTML/CSS/JavaScript simulator for comparing the 4 fundamental CPU scheduling algorithms, built for PT101 Platform Technologies final project.
 
 ## How to Run
 
-1. Download all files to a folder
-2. Double-click `index.html` to open in your browser
-3. No build step or server required
-
-To run the algorithm tests:
+1. Open `index.html` directly in any web browser (no installation or server needed).
+2. To run the automated algorithm test suite:
 ```bash
 node tests.js
 ```
 
-## Algorithms Explained
+---
 
-### 1. FCFS (First-Come, First-Served) - Non-preemptive
-The simplest scheduling algorithm. Processes are executed in the order they arrive. If Process P1 arrives before P2, P1 must complete before P2 starts. Simple but can lead to the "convoy effect" where long processes delay many short ones.
+## The 4 Algorithms Explained (Simple & Easy for Defense)
 
-### 2. SJF (Shortest Job First) - Non-preemptive
-At each decision point, the process with the shortest burst time is selected. Minimizes average waiting time but requires knowing burst times in advance (or estimates).
+### 1. FCFS (First-Come, First-Served) — Non-preemptive
+- **Concept**: Just like a queue at a grocery store checkout.
+- **Rule**: The process that arrives first gets executed first until it finishes.
+- **No interruptions**: Once a process starts running, it cannot be interrupted.
+- **Limitation**: Long processes arriving early can cause the **convoy effect**, delaying shorter processes behind them.
 
-### 3. SRTF (Shortest Remaining Time First) - Preemptive
-The preemptive version of SJF. At every time unit, the CPU switches to the process with the shortest remaining burst time. Better response times than SJF but higher overhead from context switches.
+### 2. SJF (Shortest Job First) — Non-preemptive
+- **Concept**: Pick the quickest task first.
+- **Rule**: Whenever the CPU is free, it checks all arrived processes and selects the one with the shortest burst time.
+- **Advantage**: Provides the minimum average waiting time among non-preemptive algorithms.
+- **Tie-breaker**: Earlier arrival time wins.
 
-### 4. Priority (Non-preemptive)
-Processes are selected based on priority level (lower number = higher priority). If processes have equal priority, FCFS order applies. Lower priority processes can suffer "starvation" if higher priority processes keep arriving.
+### 3. Round Robin (RR) — Preemptive
+- **Concept**: Fair time-sharing.
+- **Rule**: Every process takes turns on the CPU for a fixed time slice called the **Time Quantum** (e.g., 4 units).
+- **If not finished**: When the quantum expires, the running process is placed at the back of the ready queue, and the next waiting process gets CPU time.
+- **Advantage**: Fast response time; every process gets a turn without starving.
 
-### 5. Priority (Preemptive)
-At each time unit, the CPU is available to the highest priority waiting process. New high-priority arrivals can preempt running lower priority processes.
+### 4. Multilevel Queue (MLQ) — Fixed Priority Queues
+- **Concept**: Categorized queues where higher-priority queues run first.
+- **Queues**:
+  - **Queue 1 (Highest)**: Runs using **Round Robin (RR)** with the given Time Quantum.
+  - **Queue 2 (Medium)**: Runs using **FCFS**.
+  - **Queue 3 (Lowest)**: Runs using **FCFS**.
+- **Rule**: Queue 1 processes always execute before Queue 2, and Queue 2 executes before Queue 3. Processes remain in their assigned queue.
+- **Why MLQ over MLFQ?**: MLQ is much simpler and easier to explain because processes stay in fixed queues without complex dynamic demotion rules.
 
-### 6. Round Robin (RR)
-Each process gets a fixed time quantum (default: 4 time units). After the quantum expires, the process is preempted and added to the back of the queue. New arrivals enter before preempted processes for fairness. Guarantees bounded response times.
+---
 
-### 7. Multilevel Queue (MLQ)
-Three fixed queues by priority level:
-- Queue 1: Round Robin scheduling
-- Queue 2 & 3: FCFS scheduling
-Higher queues have absolute priority - Queue 1 processes always run before Queue 2, which always runs before Queue 3.
+## Core Formulas Used (Simple Step-by-Step Math)
 
-### 8. Multilevel Feedback Queue (MLFQ)
-Three levels with dynamic process movement:
-- Level 1: RR with quantum Q
-- Level 2: RR with quantum 2Q
-- Level 3: FCFS (infinite time)
-New processes start at Level 1. When a process uses its full quantum without completing, it's demoted to the next level. Higher level arrivals preempt lower levels.
+$$\text{Turnaround Time (TAT)} = \text{Completion Time (CT)} - \text{Arrival Time (AT)}$$
+$$\text{Waiting Time (WT)} = \text{Turnaround Time (TAT)} - \text{Burst Time (BT)}$$
+$$\text{Response Time (RT)} = \text{First Start Time} - \text{Arrival Time (AT)}$$
+$$\text{Average Waiting Time} = \frac{\text{Sum of All Waiting Times}}{\text{Number of Processes}}$$
+$$\text{CPU Utilisation} = \left(\frac{\text{Total Time} - \text{Idle Time}}{\text{Total Time}}\right) \times 100\%$$
 
-## Assumptions
+---
 
-1. **Tie-breaking**: When processes have identical priority/tiebreak criteria, earlier arrival time wins. If arrival times are equal, lower process index (P1 before P2) wins.
+## Key Features
 
-2. **Time Quantum**: Used for Round Robin and queue-based algorithms. Default: 4 time units. Processes using less than a full quantum stay in their current level (MLFQ).
-
-3. **Queue Assignment**: The "Queue" column determines which queue a process belongs to in MLQ and MLFQ. New processes in MLFQ always start at level 1 regardless of their initial queue value.
-
-4. **Preemption Timing**: 
-   - RR: New arrivals enqueue before preempted processes
-   - Priority Preemptive: New higher-priority arrivals preempt immediately
-   - MLFQ: New arrivals at level 1 preempt anything running
-
-## UI Features
-
-- **Process Table**: Add/remove rows, set arrival/burst/priority/queue
-- **Time Quantum**: Adjustable for RR and queue algorithms
-- **Algorithm Selection**: Dropdown with 8 algorithms, preemptive indicator badges
-- **Gantt Chart**: Visual representation with colors per process, time labels, hatched idle blocks
-- **Execution Log**: Chronological view of events
-- **Results Table**: Per-process metrics (Completion, Turnaround, Waiting, Response)
-- **Average Metrics**: Summary statistics
-- **Algorithm Comparison**: Compare 2+ algorithms on same input
-
-## Keyboard Accessibility
-
-- Tab navigation through all interactive elements
-- Enter/Space activates buttons and checkboxes
-- Escape closes any open modals (if added)
-
-## Design Decisions
-
-- **IBM Plex** fonts for professional academic feel
-- **Light/Dark mode** with system preference detection
-- **40px per time unit** in Gantt chart (responsive horizontal scroll)
-- **Monospace fonts** for data tables and logs
-
-## Oral Defense Tips
-
-Each algorithm function in `scheduler.js` is self-contained and well-commented:
-1. Read the JSDoc comment at the top of each function
-2. Trace the algorithm step-by-step with a simple example
-3. Point out the tie-breaking logic
-4. For RR/queue algorithms, explain the time quantum handling
-
-The code follows these patterns:
-- `createProcessCopy()`: Adds tracking fields (remainingBurst, firstStartTime)
-- `calculateMetrics()`: Computes CT, TAT, WT, RT from Gantt data
-- Each algorithm returns standardized output for consistency
+- **Interactive Timeline (Gantt Chart)**: Visual representation with colored process blocks, idle hatching, and time stepper.
+- **Live Results Table**: Per-process Completion, Turnaround, Waiting, and Response times.
+- **Algorithm Comparison**: Side-by-side comparison of all 4 algorithms with visual performance bars.
+- **Light & Dark Theme**: Built-in toggle supporting system theme preference.
