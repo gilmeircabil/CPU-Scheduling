@@ -58,7 +58,12 @@ const SAMPLE_DATA = [
 
 // Global State
 let pidCounter = 0;
+let rowOrderCounter = 0;
 let hasRun = false;
+
+// Per-queue scheduling policies for MLQ (queue number → algorithm key).
+// Queue 1 defaults to round robin; queues 2 & 3 default to FCFS.
+let queueConfig = { 1: 'round-robin', 2: 'fcfs', 3: 'fcfs' };
 
 // ============== Theme ==============
 
@@ -105,7 +110,7 @@ function getSelectedAlgorithm() {
 /** Assigns CSS color variable to each process PID by row position */
 function getProcessColours() {
   const colours = {};
-  const rows = el.processBody.querySelectorAll('tr');
+  const rows = el.processBody.querySelectorAll('tr[data-pid]');
   for (let i = 0; i < rows.length; i++) {
     const pid = rows[i].dataset.pid;
     const colourNumber = (i % PROCESS_COLOURS) + 1;
@@ -137,6 +142,9 @@ function addProcessRow(p) {
 
   const row = document.createElement('tr');
   row.dataset.pid = pid;
+  // Stable position used to restore the flat list order after MLQ grouping
+  rowOrderCounter = rowOrderCounter + 1;
+  row.dataset.order = String(rowOrderCounter);
 
   const q1Selected = (queueVal === 1) ? ' selected' : '';
   const q2Selected = (queueVal === 2) ? ' selected' : '';
@@ -152,6 +160,7 @@ function addProcessRow(p) {
         '<option value="2"' + q2Selected + '>2</option>' +
         '<option value="3"' + q3Selected + '>3</option>' +
       '</select>' +
+      '<span class="queue-static" aria-hidden="true">' + queueVal + '</span>' +
     '</td>' +
     '<td><button type="button" class="remove-btn" aria-label="Remove ' + pid + '" title="Remove ' + pid + '">&times;</button></td>';
 
@@ -174,8 +183,129 @@ function paintRowColours() {
   }
 }
 
+// ============== MLQ Queue Grouping ==============
+
+// Algorithms each queue can run inside the MLQ view
+const QUEUE_ALGO_OPTIONS = [
+  { value: 'round-robin', label: 'Round robin' },
+  { value: 'sjf', label: 'Shortest job first' },
+  { value: 'fcfs', label: 'First come, first served' }
+];
+
+/**
+ * MLQ view: processes are organised into their queues instead of a flat
+ * process list. Each queue gets its own section header with an algorithm
+ * dropdown (round robin / SJF / FCFS) and add button, and the queue is
+ * owned by the section (no per-row dropdown).
+ * Every other policy: flat process list in the original row order.
+ */
+function applyQueueGrouping() {
+  const grouped = getSelectedAlgorithm() === 'multilevel-queue';
+
+  // Remove existing section headers
+  const headers = el.processBody.querySelectorAll('.queue-header-row');
+  for (let i = 0; i < headers.length; i++) {
+    headers[i].remove();
+  }
+
+  const rows = [];
+  const allRows = el.processBody.querySelectorAll('tr[data-pid]');
+  for (let i = 0; i < allRows.length; i++) {
+    rows.push(allRows[i]);
+  }
+
+  if (!grouped) {
+    // Flat view: restore the original row order
+    rows.sort(function (a, b) {
+      return Number(a.dataset.order) - Number(b.dataset.order);
+    });
+    for (let i = 0; i < rows.length; i++) {
+      el.processBody.appendChild(rows[i]);
+    }
+  } else {
+    // Keep the static queue tags in sync with the select values
+    const rowQueues = [];
+    for (let i = 0; i < rows.length; i++) {
+      let rowQueue = parseInt(rows[i].querySelector('.queue-input').value, 10);
+      if (isNaN(rowQueue)) rowQueue = 1;
+      rowQueues.push(rowQueue);
+      const staticTag = rows[i].querySelector('.queue-static');
+      if (staticTag) staticTag.textContent = String(rowQueue);
+    }
+
+    // Grouped view: one section per queue, in priority order
+    for (let q = 1; q <= 3; q++) {
+      // Algorithm dropdown for this queue (round robin / SJF / FCFS)
+      let optionsHtml = '';
+      for (let k = 0; k < QUEUE_ALGO_OPTIONS.length; k++) {
+        const opt = QUEUE_ALGO_OPTIONS[k];
+        const isSel = (queueConfig[q] === opt.value) ? ' selected' : '';
+        optionsHtml += '<option value="' + opt.value + '"' + isSel + '>' + opt.label + '</option>';
+      }
+
+      const header = document.createElement('tr');
+      header.className = 'queue-header-row';
+      header.dataset.queue = String(q);
+      header.innerHTML =
+        '<td colspan="5">' +
+          '<div class="queue-head">' +
+            '<span class="queue-head-label">Queue ' + q + '</span>' +
+            '<select class="queue-algo" data-queue="' + q + '" aria-label="Queue ' + q + ' scheduling algorithm">' + optionsHtml + '</select>' +
+            '<button type="button" class="btn btn-quiet btn-add-q" data-queue="' + q + '" aria-label="Add process to queue ' + q + '">+ Add process</button>' +
+          '</div>' +
+        '</td>';
+      el.processBody.appendChild(header);
+
+      for (let i = 0; i < rows.length; i++) {
+        if (rowQueues[i] === q) {
+          el.processBody.appendChild(rows[i]);
+        }
+      }
+    }
+  }
+
+  el.addRow.hidden = grouped;
+  el.processTable.classList.toggle('queue-sections', grouped);
+  paintRowColours();
+}
+
+/** Next/previous process row, skipping MLQ section headers */
+function getAdjacentProcessRow(row) {
+  let next = row.nextElementSibling;
+  while (next && !next.hasAttribute('data-pid')) {
+    next = next.nextElementSibling;
+  }
+  if (next) return next;
+  let prev = row.previousElementSibling;
+  while (prev && !prev.hasAttribute('data-pid')) {
+    prev = prev.previousElementSibling;
+  }
+  return prev;
+}
+
+/** Focus the global add button, or the first queue add button when grouped */
+function focusAddFallback() {
+  if (el.addRow.hidden) {
+    const qBtn = el.processBody.querySelector('.btn-add-q');
+    if (qBtn) {
+      qBtn.focus();
+      return;
+    }
+  }
+  el.addRow.focus();
+}
+
+/** Adds a new process directly into the given MLQ queue section */
+function addProcessToQueue(queueNum) {
+  let q = queueNum;
+  if (isNaN(q) || q < 1 || q > 3) q = 1;
+  const row = addProcessRow({ queue: q });
+  row.querySelector('.arrival-input').focus();
+  onWorkloadChanged();
+}
+
 function getProcessData() {
-  const rows = el.processBody.querySelectorAll('tr');
+  const rows = el.processBody.querySelectorAll('tr[data-pid]');
   const list = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -219,19 +349,40 @@ el.loadSample.addEventListener('click', function () {
 });
 
 el.processBody.addEventListener('click', function (e) {
+  // Per-queue add button (MLQ grouped view)
+  const addBtn = e.target.closest('.btn-add-q');
+  if (addBtn) {
+    addProcessToQueue(parseInt(addBtn.dataset.queue, 10));
+    return;
+  }
+
   const btn = e.target.closest('.remove-btn');
   if (!btn) return;
   const row = btn.closest('tr');
-  const next = row.nextElementSibling || row.previousElementSibling;
+  const next = getAdjacentProcessRow(row);
   row.remove();
   paintRowColours();
   if (next && next.querySelector('.remove-btn')) {
     next.querySelector('.remove-btn').focus();
   } else {
-    el.addRow.focus();
+    focusAddFallback();
   }
   onWorkloadChanged();
 });
+
+// Keep the MLQ per-queue policy selection in sync with the scheduler config.
+// Registered before the generic workload input listener so a policy change is
+// applied to queueConfig before the simulation re-runs from the same event.
+function syncQueueAlgoSelection(e) {
+  const sel = e.target.closest('.queue-algo');
+  if (!sel) return;
+  const q = parseInt(sel.dataset.queue, 10);
+  if (q >= 1 && q <= 3) {
+    queueConfig[q] = sel.value;
+  }
+}
+el.processBody.addEventListener('input', syncQueueAlgoSelection);
+el.processBody.addEventListener('change', syncQueueAlgoSelection);
 
 el.addRow.addEventListener('click', function () {
   const row = addProcessRow();
@@ -268,6 +419,8 @@ function updateColumnRelevance() {
 
   if (!algo.usesQueue) {
     el.columnHint.textContent = algo.full + ' ignores queue.';
+  } else if (algoKey === 'multilevel-queue') {
+    el.columnHint.textContent = 'Processes run as queues and each queue runs its own algorithm — a higher queue always preempts the lower ones. The time quantum applies to queues set to round robin. Switch to another policy to move a process between queues.';
   } else {
     el.columnHint.textContent = '';
   }
@@ -281,6 +434,9 @@ function updateColumnRelevance() {
     el.quantum.disabled = true;
     el.quantumField.title = 'Only used by round robin and MLQ';
   }
+
+  // Switch between the flat process list and grouped queue sections (MLQ)
+  applyQueueGrouping();
 }
 
 const algoRadios = document.querySelectorAll('input[name="algorithm"]');
@@ -308,7 +464,7 @@ function validate() {
   }
   el.quantum.removeAttribute('aria-invalid');
 
-  const rows = el.processBody.querySelectorAll('tr');
+  const rows = el.processBody.querySelectorAll('tr[data-pid]');
 
   for (let i = 0; i < errors.length; i++) {
     const msg = errors[i];
@@ -557,7 +713,7 @@ function runSimulation(animate) {
 
   const algo = getSelectedAlgorithm();
   const quantum = parseInt(el.quantum.value, 10);
-  const result = runScheduler(data, algo, quantum);
+  const result = runScheduler(data, algo, quantum, queueConfig);
 
   if (result.gantt.length === 0) return;
 
@@ -631,7 +787,7 @@ function runComparison() {
   let maxEnd = 1;
   for (let i = 0; i < picked.length; i++) {
     const key = picked[i];
-    const res = runScheduler(data, key, quantum);
+    const res = runScheduler(data, key, quantum, queueConfig);
     let runEnd = 1;
     for (let j = 0; j < res.gantt.length; j++) {
       if (res.gantt[j].end > runEnd) {
