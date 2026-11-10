@@ -86,7 +86,7 @@
             <label class="algo"><input type="radio" name="algorithm" value="fcfs" checked><span class="algo-name">First come, first served <abbr>FCFS</abbr></span><span class="algo-meta">Runs in arrival order, no interruptions</span></label>
             <label class="algo"><input type="radio" name="algorithm" value="sjf"><span class="algo-name">Shortest job first <abbr>SJF</abbr></span><span class="algo-meta">Picks the shortest burst, no interruptions</span></label>
             <label class="algo"><input type="radio" name="algorithm" value="round-robin"><span class="algo-name">Round robin <abbr>RR</abbr></span><span class="algo-meta">Each process gets one quantum in turn</span></label>
-            <label class="algo"><input type="radio" name="algorithm" value="multilevel-queue"><span class="algo-name">Multilevel queue <abbr>MLQ</abbr></span><span class="algo-meta">Queue 1 (RR) always runs before Queue 2 & 3 (FCFS)</span></label>
+            <label class="algo"><input type="radio" name="algorithm" value="multilevel-queue"><span class="algo-name">Multilevel queue <abbr>MLQ</abbr></span><span class="algo-meta">Queue 1 runs before Queue 2 & 3 — each queue has its own algorithm</span></label>
           </fieldset>
 
           <div class="run-row">
