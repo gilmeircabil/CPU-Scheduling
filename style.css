@@ -381,6 +381,50 @@ input[aria-invalid="true"] { border-color: var(--error); background: var(--error
 }
 .remove-btn:hover { background: var(--error-bg); color: var(--error); }
 
+/* Queue sections (MLQ grouped view) */
+.queue-header-row td {
+  padding: 12px 0 6px;
+  border-bottom: 1px solid var(--rule);
+}
+.queue-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.queue-head-label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.queue-head .btn-add-q {
+  margin-left: auto;
+  padding: 5px 10px;
+  font-size: var(--fs-xs);
+}
+.queue-head .queue-algo {
+  width: auto;
+  min-width: 130px;
+  padding: 5px 8px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+/* Queue is owned by the section: show a static tag instead of the dropdown */
+.queue-static {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  background: var(--rule-soft);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.process-table.queue-sections .queue-input { display: none; }
+.process-table.queue-sections .queue-static { display: inline-flex; }
+
 .errors {
   list-style: none;
   margin: 12px 0 0;
