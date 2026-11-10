@@ -413,9 +413,38 @@ export function roundRobin(processes, quantum = 4) {
 
 // ============== 4. MULTILEVEL QUEUE (MLQ) ==============
 
-export function multilevelQueue(processes, quantum = 4) {
+// Default per-queue policies: Queue 1 runs Round Robin, Queues 2 & 3 run FCFS.
+const DEFAULT_QUEUE_CONFIG = { 1: 'round-robin', 2: 'fcfs', 3: 'fcfs' };
+
+/**
+ * Maps a policy key to an internal queue discipline.
+ *   'round-robin' → 'rr'  (time-shared using the quantum)
+ *   'sjf'         → 'sjf' (shortest burst first, non-preemptive)
+ *   anything else → 'fcfs' (first come, first served, non-preemptive)
+ */
+function normaliseQueuePolicy(policy) {
+  if (policy === 'round-robin' || policy === 'rr') {
+    return 'rr';
+  }
+  if (policy === 'sjf') {
+    return 'sjf';
+  }
+  return 'fcfs';
+}
+
+export function multilevelQueue(processes, quantum = 4, queueConfig = null) {
   if (!processes || processes.length === 0) {
     return { gantt: [], log: [], processes: [], averages: { waiting: 0, turnaround: 0, response: 0, idleTime: 0 } };
+  }
+
+  // Resolve the policy for each queue (config value, else the default)
+  const policies = {};
+  for (let q = 1; q <= 3; q++) {
+    let raw = DEFAULT_QUEUE_CONFIG[q];
+    if (queueConfig && queueConfig[q] !== undefined && queueConfig[q] !== null) {
+      raw = queueConfig[q];
+    }
+    policies[q] = normaliseQueuePolicy(raw);
   }
 
   const procs = createProcessCopy(processes);
@@ -469,13 +498,38 @@ export function multilevelQueue(processes, quantum = 4) {
       }
     }
 
-    const currentProc = queues[highestQ].shift();
+    // Pick which process in this queue runs next
+    const policy = policies[highestQ];
+    const queueArr = queues[highestQ];
 
-    if (highestQ === 1) {
-      // Queue 1 runs Round Robin
-      if (currentProc.firstStartTime === null) {
-        currentProc.firstStartTime = currentTime;
+    let currentProc;
+    if (policy === 'sjf') {
+      // Shortest job first within the queue: smallest burst,
+      // tie-break by arrival time, then input order
+      let bestIdx = 0;
+      for (let i = 1; i < queueArr.length; i++) {
+        const a = queueArr[i];
+        const best = queueArr[bestIdx];
+        if (a.burst < best.burst ||
+            (a.burst === best.burst && a.arrival < best.arrival) ||
+            (a.burst === best.burst && a.arrival === best.arrival && a.originalIndex < best.originalIndex)) {
+          bestIdx = i;
+        }
       }
+      currentProc = queueArr.splice(bestIdx, 1)[0];
+    } else {
+      // FCFS and RR both dispatch from the front of the queue
+      currentProc = queueArr.shift();
+    }
+
+    if (currentProc.isCompleted) continue;
+
+    if (currentProc.firstStartTime === null) {
+      currentProc.firstStartTime = currentTime;
+    }
+
+    if (policy === 'rr') {
+      // This queue runs Round Robin: one quantum per turn, re-queue if unfinished
       let runTime = quantum;
       if (currentProc.remainingBurst < quantum) {
         runTime = currentProc.remainingBurst;
@@ -491,18 +545,16 @@ export function multilevelQueue(processes, quantum = 4) {
         completedCount = completedCount + 1;
         log.push({ time: currentTime, event: 'finish', detail: `${currentProc.id} completed` });
       } else {
-        queues[1].push(currentProc);
+        queues[highestQ].push(currentProc);
       }
     } else {
-      // Queues 2 & 3 run FCFS to completion
-      if (currentProc.firstStartTime === null) {
-        currentProc.firstStartTime = currentTime;
-      }
+      // FCFS / SJF queues are non-preemptive: run to completion
       const endTime = currentTime + currentProc.burst;
       gantt.push({ pid: currentProc.id, start: currentTime, end: endTime, isIdle: false });
       currentTime = endTime;
       currentProc.isCompleted = true;
       completedCount = completedCount + 1;
+      log.push({ time: currentTime, event: 'finish', detail: `${currentProc.id} completed` });
     }
   }
 
@@ -512,7 +564,7 @@ export function multilevelQueue(processes, quantum = 4) {
 
 // ============== DISPATCHER ==============
 
-export function runScheduler(processes, algorithm, quantum = 4) {
+export function runScheduler(processes, algorithm, quantum = 4, queueConfig = null) {
   if (algorithm === 'fcfs') {
     return fcfs(processes);
   }
@@ -523,7 +575,7 @@ export function runScheduler(processes, algorithm, quantum = 4) {
     return roundRobin(processes, quantum);
   }
   if (algorithm === 'multilevel-queue') {
-    return multilevelQueue(processes, quantum);
+    return multilevelQueue(processes, quantum, queueConfig);
   }
 
   throw new Error(`Unknown algorithm: ${algorithm}`);
