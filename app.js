@@ -318,7 +318,6 @@ function getProcessData() {
       pid: pid,
       arrival: arrival,
       burst: burst,
-      priority: 1,
       queue: queue
     });
   }

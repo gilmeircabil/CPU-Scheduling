@@ -1,372 +1,183 @@
 /**
- * CPU Scheduling Algorithm Simulator - Core Module
- * Pure algorithm implementations with zero DOM dependencies.
- * Contains the 4 core scheduling algorithms:
- *   1. FCFS (First-Come, First-Served)
- *   2. SJF (Shortest Job First - Non-preemptive)
- *   3. Round Robin (RR)
- *   4. Multilevel Queue (MLQ)
+ * CPU Scheduling Algorithm Simulator - Core Algorithms
+ * Implements FCFS, SJF, Round Robin, and Multilevel Queue.
  */
 
-// ============== HELPER FUNCTIONS ==============
-
-/**
- * Validates the process list and options.
- * Checks that required fields exist, numbers are valid integers, and IDs are unique.
- */
 export function validateProcesses(processes, options = {}) {
   const errors = [];
-  const seenPids = [];
+  const seen = new Set();
 
-  for (let i = 0; i < processes.length; i++) {
-    const p = processes[i];
-    const rowNum = i + 1;
-    let pidUpper = '';
-    if (p.pid !== undefined && p.pid !== null) {
-      pidUpper = String(p.pid).toUpperCase();
-    }
+  processes.forEach((p, i) => {
+    const row = i + 1;
+    const pid = typeof p.pid === 'string' ? p.pid.trim() : '';
 
-    // Check process ID
-    if (!p.pid || typeof p.pid !== 'string' || p.pid.trim() === '') {
-      errors.push(`Row ${rowNum}: Process ID is required`);
+    if (!pid) {
+      errors.push(`Row ${row}: Process ID is required`);
+    } else if (seen.has(pid.toUpperCase())) {
+      errors.push(`Row ${row}: Process ID must be unique`);
     } else {
-      let isDuplicate = false;
-      for (let k = 0; k < seenPids.length; k++) {
-        if (seenPids[k] === pidUpper) {
-          isDuplicate = true;
-          break;
-        }
-      }
-      if (isDuplicate) {
-        errors.push(`Row ${rowNum}: Process ID must be unique`);
-      } else {
-        seenPids.push(pidUpper);
-      }
+      seen.add(pid.toUpperCase());
     }
 
-    // Check arrival time (must be integer >= 0)
-    if (p.arrival === undefined || p.arrival === null) {
-      errors.push(`Row ${rowNum}: Arrival time is required`);
-    } else if (!Number.isInteger(p.arrival) || p.arrival < 0) {
-      errors.push(`Row ${rowNum}: Arrival time must be a whole number >= 0`);
+    if (!Number.isInteger(p.arrival) || p.arrival < 0) {
+      errors.push(`Row ${row}: Arrival time must be a whole number >= 0`);
     }
-
-    // Check burst time (must be integer >= 1)
-    if (p.burst === undefined || p.burst === null) {
-      errors.push(`Row ${rowNum}: Burst time is required`);
-    } else if (!Number.isInteger(p.burst) || p.burst < 1) {
-      errors.push(`Row ${rowNum}: Burst time must be a whole number >= 1`);
+    if (!Number.isInteger(p.burst) || p.burst < 1) {
+      errors.push(`Row ${row}: Burst time must be a whole number >= 1`);
     }
-
-    // Check priority (optional; if provided must be whole number >= 1)
-    if (p.priority !== undefined && p.priority !== null) {
-      if (!Number.isInteger(p.priority) || p.priority < 1) {
-        errors.push(`Row ${rowNum}: Priority must be a whole number >= 1`);
-      }
+    if (!Number.isInteger(p.queue) || p.queue < 1 || p.queue > 3) {
+      errors.push(`Row ${row}: Queue level must be 1, 2, or 3`);
     }
+  });
 
-    // Check queue level (must be 1, 2, or 3)
-    if (p.queue === undefined || p.queue === null) {
-      errors.push(`Row ${rowNum}: Queue level is required`);
-    } else if (!Number.isInteger(p.queue) || p.queue < 1 || p.queue > 3) {
-      errors.push(`Row ${rowNum}: Queue level must be 1, 2, or 3`);
-    }
-  }
-
-  // Check quantum (must be integer >= 1 if provided)
   if (options.quantum !== undefined && options.quantum !== null) {
     if (!Number.isInteger(options.quantum) || options.quantum < 1) {
       errors.push(`Time quantum must be a whole number >= 1`);
     }
   }
 
-  return { valid: errors.length === 0, errors: errors };
+  return { valid: errors.length === 0, errors };
 }
 
-/**
- * Creates a clean working copy of processes with tracking fields.
- */
-function createProcessCopy(processes) {
-  const copy = [];
-  for (let i = 0; i < processes.length; i++) {
-    const p = processes[i];
-    copy.push({
-      pid: p.pid,
-      id: p.pid,
-      arrival: p.arrival,
-      burst: p.burst,
-      priority: p.priority || 1,
-      queue: p.queue || 1,
-      remainingBurst: p.burst,
-      originalIndex: i,
-      firstStartTime: null,
-      completion: null,
-      isCompleted: false
-    });
-  }
-  return copy;
+function copyProcesses(processes) {
+  return processes.map((p, originalIndex) => ({
+    pid: p.pid,
+    id: p.pid,
+    arrival: p.arrival,
+    burst: p.burst,
+    queue: p.queue || 1,
+    remainingBurst: p.burst,
+    originalIndex,
+    firstStartTime: null,
+    isCompleted: false
+  }));
 }
 
-/**
- * Calculates CT, TAT, WT, RT and averages from the Gantt chart and process list.
- *
- * Formulas:
- *   Completion Time (CT) = time when process finishes its last CPU burst
- *   Turnaround Time (TAT) = Completion Time - Arrival Time
- *   Waiting Time (WT)    = Turnaround Time - Burst Time
- *   Response Time (RT)   = First Start Time - Arrival Time
- *   Average = Total Sum / Number of Processes
- */
 function calculateMetrics(gantt, processes) {
   if (!processes || processes.length === 0) {
-    return {
-      processes: [],
-      averages: { waiting: 0, turnaround: 0, response: 0, idleTime: 0 }
-    };
+    return { processes: [], averages: { waiting: 0, turnaround: 0, response: 0, idleTime: 0 } };
   }
 
-  const n = processes.length;
-  const result = [];
-
-  let totalWaiting = 0;
-  let totalTurnaround = 0;
-  let totalResponse = 0;
-
-  for (let i = 0; i < n; i++) {
-    const p = processes[i];
-
-    // 1. Completion Time (CT): end time of the process's last run
-    let completion = 0;
-    for (let j = 0; j < gantt.length; j++) {
-      if (!gantt[j].isIdle && gantt[j].pid === p.pid) {
-        completion = gantt[j].end;
+  let totalWaiting = 0, totalTurnaround = 0, totalResponse = 0;
+  const result = processes.map(p => {
+    let completion = 0, firstStartTime = null;
+    for (const g of gantt) {
+      if (!g.isIdle && g.pid === p.pid) {
+        if (firstStartTime === null) firstStartTime = g.start;
+        completion = g.end;
       }
     }
+    if (firstStartTime === null) firstStartTime = p.arrival;
 
-    // 2. First Start Time: start time of the process's first run
-    let firstStartTime = null;
-    for (let j = 0; j < gantt.length; j++) {
-      if (!gantt[j].isIdle && gantt[j].pid === p.pid) {
-        firstStartTime = gantt[j].start;
-        break; // Stop at first appearance
-      }
-    }
-    if (firstStartTime === null) {
-      firstStartTime = p.arrival;
-    }
-
-    // 3. Turnaround Time = Completion Time - Arrival Time
-    // Example: 5 - 1 = 4
     const turnaround = completion - p.arrival;
-
-    // 4. Waiting Time = Turnaround Time - Burst Time
-    // Example: 4 - 3 = 1
     const waiting = turnaround - p.burst;
-
-    // 5. Response Time = First Start Time - Arrival Time
-    // Example: 2 - 1 = 1
     const response = firstStartTime - p.arrival;
 
-    // Add to running totals
-    totalWaiting = totalWaiting + waiting;
-    totalTurnaround = totalTurnaround + turnaround;
-    totalResponse = totalResponse + response;
+    totalWaiting += waiting;
+    totalTurnaround += turnaround;
+    totalResponse += response;
 
-    result.push({
+    return {
       pid: p.pid,
       arrival: p.arrival,
       burst: p.burst,
-      priority: p.priority,
       queue: p.queue,
-      completion: completion,
-      turnaround: turnaround,
-      waiting: waiting,
-      response: response
-    });
-  }
+      completion,
+      turnaround,
+      waiting,
+      response
+    };
+  });
 
-  // Total Idle Time = sum of all idle durations (end - start)
-  let totalIdle = 0;
-  for (let i = 0; i < gantt.length; i++) {
-    if (gantt[i].isIdle) {
-      const idleDuration = gantt[i].end - gantt[i].start;
-      totalIdle = totalIdle + idleDuration;
-    }
-  }
-
-  // Averages = Total / Number of processes
-  const avgWaiting = n > 0 ? totalWaiting / n : 0;
-  const avgTurnaround = n > 0 ? totalTurnaround / n : 0;
-  const avgResponse = n > 0 ? totalResponse / n : 0;
+  const totalIdle = gantt.reduce((sum, g) => sum + (g.isIdle ? g.end - g.start : 0), 0);
+  const n = processes.length;
 
   return {
     processes: result,
     averages: {
-      waiting: avgWaiting,
-      turnaround: avgTurnaround,
-      response: avgResponse,
+      waiting: totalWaiting / n,
+      turnaround: totalTurnaround / n,
+      response: totalResponse / n,
       idleTime: totalIdle
     }
   };
 }
 
-// ============== 1. FCFS (FIRST-COME, FIRST-SERVED) ==============
-
 export function fcfs(processes) {
   if (!processes || processes.length === 0) {
     return { gantt: [], log: [], processes: [], averages: { waiting: 0, turnaround: 0, response: 0, idleTime: 0 } };
   }
-
-  const procs = createProcessCopy(processes);
-  const gantt = [];
-  const log = [];
+  const procs = copyProcesses(processes).sort((a, b) => a.arrival - b.arrival || a.originalIndex - b.originalIndex);
+  const gantt = [], log = [];
   let currentTime = 0;
 
-  // Sort by arrival time. Tie-break: original input order
-  const sorted = [];
-  for (let i = 0; i < procs.length; i++) {
-    sorted.push(procs[i]);
-  }
-  sorted.sort(function (a, b) {
-    if (a.arrival !== b.arrival) {
-      return a.arrival - b.arrival;
-    }
-    return a.originalIndex - b.originalIndex;
-  });
-
-  for (let i = 0; i < sorted.length; i++) {
-    const p = sorted[i];
-
-    // If CPU is idle before process arrives
+  for (const p of procs) {
     if (currentTime < p.arrival) {
       gantt.push({ pid: 'IDLE', start: currentTime, end: p.arrival, isIdle: true });
       log.push({ time: currentTime, event: 'idle', detail: `CPU idle until ${p.pid} arrives at ${p.arrival}` });
       currentTime = p.arrival;
     }
-
-    const startTime = currentTime;
-    const endTime = currentTime + p.burst;
-
-    gantt.push({ pid: p.pid, start: startTime, end: endTime, isIdle: false });
-    log.push({ time: startTime, event: 'start', detail: `${p.pid} started` });
-    p.firstStartTime = startTime;
-    currentTime = endTime;
-    log.push({ time: endTime, event: 'finish', detail: `${p.pid} completed` });
+    gantt.push({ pid: p.pid, start: currentTime, end: currentTime + p.burst, isIdle: false });
+    log.push({ time: currentTime, event: 'start', detail: `${p.pid} started` });
+    currentTime += p.burst;
+    log.push({ time: currentTime, event: 'finish', detail: `${p.pid} completed` });
   }
 
   const metrics = calculateMetrics(gantt, procs);
-  return { gantt: gantt, log: log, processes: metrics.processes, averages: metrics.averages };
+  return { gantt, log, processes: metrics.processes, averages: metrics.averages };
 }
-
-// ============== 2. SJF (SHORTEST JOB FIRST - NON-PREEMPTIVE) ==============
 
 export function sjf(processes) {
   if (!processes || processes.length === 0) {
     return { gantt: [], log: [], processes: [], averages: { waiting: 0, turnaround: 0, response: 0, idleTime: 0 } };
   }
+  const procs = copyProcesses(processes);
+  const gantt = [], log = [];
+  let currentTime = 0, completed = 0;
 
-  const procs = createProcessCopy(processes);
-  const gantt = [];
-  const log = [];
-  let currentTime = 0;
-  let completedCount = 0;
-
-  while (completedCount < procs.length) {
-    // Collect all arrived, uncompleted processes
-    const arrived = [];
-    for (let i = 0; i < procs.length; i++) {
-      if (!procs[i].isCompleted && procs[i].arrival <= currentTime) {
-        arrived.push(procs[i]);
-      }
-    }
-
-    // If none have arrived, jump CPU to next earliest arrival
+  while (completed < procs.length) {
+    const arrived = procs.filter(p => !p.isCompleted && p.arrival <= currentTime);
     if (arrived.length === 0) {
-      let nextArrival = null;
-      for (let i = 0; i < procs.length; i++) {
-        if (!procs[i].isCompleted) {
-          if (nextArrival === null || procs[i].arrival < nextArrival) {
-            nextArrival = procs[i].arrival;
-          }
-        }
-      }
-      if (nextArrival === null) break;
-
+      const remaining = procs.filter(p => !p.isCompleted);
+      if (remaining.length === 0) break;
+      const nextArrival = Math.min(...remaining.map(p => p.arrival));
       gantt.push({ pid: 'IDLE', start: currentTime, end: nextArrival, isIdle: true });
       log.push({ time: currentTime, event: 'idle', detail: `CPU idle until arrival at ${nextArrival}` });
       currentTime = nextArrival;
       continue;
     }
 
-    // Sort by shortest burst time. Tie-break: earlier arrival, then input index
-    arrived.sort(function (a, b) {
-      if (a.burst !== b.burst) {
-        return a.burst - b.burst;
-      }
-      if (a.arrival !== b.arrival) {
-        return a.arrival - b.arrival;
-      }
-      return a.originalIndex - b.originalIndex;
-    });
-
-    const current = arrived[0];
-    const startTime = currentTime;
-    const endTime = currentTime + current.burst;
-
-    gantt.push({ pid: current.pid, start: startTime, end: endTime, isIdle: false });
-    log.push({ time: startTime, event: 'start', detail: `${current.pid} started (burst: ${current.burst})` });
-    current.firstStartTime = startTime;
-    currentTime = endTime;
-    current.isCompleted = true;
-    completedCount = completedCount + 1;
-    log.push({ time: endTime, event: 'finish', detail: `${current.pid} completed` });
+    arrived.sort((a, b) => a.burst - b.burst || a.arrival - b.arrival || a.originalIndex - b.originalIndex);
+    const p = arrived[0];
+    gantt.push({ pid: p.pid, start: currentTime, end: currentTime + p.burst, isIdle: false });
+    log.push({ time: currentTime, event: 'start', detail: `${p.pid} started (burst: ${p.burst})` });
+    currentTime += p.burst;
+    p.isCompleted = true;
+    completed++;
+    log.push({ time: currentTime, event: 'finish', detail: `${p.pid} completed` });
   }
 
   const metrics = calculateMetrics(gantt, procs);
-  return { gantt: gantt, log: log, processes: metrics.processes, averages: metrics.averages };
+  return { gantt, log, processes: metrics.processes, averages: metrics.averages };
 }
-
-// ============== 3. ROUND ROBIN (RR) ==============
 
 export function roundRobin(processes, quantum = 4) {
   if (!processes || processes.length === 0) {
     return { gantt: [], log: [], processes: [], averages: { waiting: 0, turnaround: 0, response: 0, idleTime: 0 } };
   }
+  const procs = copyProcesses(processes);
+  const sorted = [...procs].sort((a, b) => a.arrival - b.arrival || a.originalIndex - b.originalIndex);
+  const gantt = [], log = [], queue = [];
+  let currentTime = 0, completed = 0, nextIdx = 0;
 
-  const procs = createProcessCopy(processes);
-  const gantt = [];
-  const log = [];
-  let currentTime = 0;
-  let completedCount = 0;
-
-  const queue = [];
-
-  // Sort initially by arrival time
-  const sorted = [];
-  for (let i = 0; i < procs.length; i++) {
-    sorted.push(procs[i]);
-  }
-  sorted.sort(function (a, b) {
-    if (a.arrival !== b.arrival) {
-      return a.arrival - b.arrival;
+  const enqueueArrived = () => {
+    while (nextIdx < sorted.length && sorted[nextIdx].arrival <= currentTime) {
+      queue.push(sorted[nextIdx++]);
     }
-    return a.originalIndex - b.originalIndex;
-  });
+  };
 
-  let nextIdx = 0;
-
-  // Add newly arrived processes to the back of the queue
-  function addArrived(time) {
-    while (nextIdx < sorted.length && sorted[nextIdx].arrival <= time) {
-      queue.push(sorted[nextIdx]);
-      nextIdx = nextIdx + 1;
-    }
-  }
-
-  while (completedCount < procs.length) {
-    addArrived(currentTime);
-
-    // If queue is empty, wait for next arrival
+  while (completed < procs.length) {
+    enqueueArrived();
     if (queue.length === 0) {
       if (nextIdx >= sorted.length) break;
       const nextArrival = sorted[nextIdx].arrival;
@@ -375,208 +186,113 @@ export function roundRobin(processes, quantum = 4) {
       continue;
     }
 
-    const currentProc = queue.shift();
+    const p = queue.shift();
+    const runTime = Math.min(p.remainingBurst, quantum);
+    gantt.push({ pid: p.id, start: currentTime, end: currentTime + runTime, isIdle: false });
+    log.push({ time: currentTime, event: 'start', detail: `${p.id} started` });
+    p.remainingBurst -= runTime;
+    currentTime += runTime;
 
-    if (currentProc.isCompleted) continue;
-
-    if (currentProc.firstStartTime === null) {
-      currentProc.firstStartTime = currentTime;
-    }
-
-    // Run for quantum or remaining burst, whichever is smaller
-    let runTime = quantum;
-    if (currentProc.remainingBurst < quantum) {
-      runTime = currentProc.remainingBurst;
-    }
-    const endTime = currentTime + runTime;
-
-    gantt.push({ pid: currentProc.id, start: currentTime, end: endTime, isIdle: false });
-    log.push({ time: currentTime, event: 'start', detail: `${currentProc.id} started` });
-
-    currentProc.remainingBurst = currentProc.remainingBurst - runTime;
-    currentTime = endTime;
-
-    if (currentProc.remainingBurst === 0) {
-      currentProc.isCompleted = true;
-      completedCount = completedCount + 1;
-      log.push({ time: currentTime, event: 'finish', detail: `${currentProc.id} completed` });
+    if (p.remainingBurst === 0) {
+      p.isCompleted = true;
+      completed++;
+      log.push({ time: currentTime, event: 'finish', detail: `${p.id} completed` });
     } else {
-      // New arrivals enter before the preempted process is put back
-      addArrived(currentTime);
-      queue.push(currentProc);
+      enqueueArrived();
+      queue.push(p);
     }
   }
 
   const metrics = calculateMetrics(gantt, procs);
-  return { gantt: gantt, log: log, processes: metrics.processes, averages: metrics.averages };
+  return { gantt, log, processes: metrics.processes, averages: metrics.averages };
 }
 
-// ============== 4. MULTILEVEL QUEUE (MLQ) ==============
-
-// Default per-queue policies: Queue 1 runs Round Robin, Queues 2 & 3 run FCFS.
 const DEFAULT_QUEUE_CONFIG = { 1: 'round-robin', 2: 'fcfs', 3: 'fcfs' };
-
-/**
- * Maps a policy key to an internal queue discipline.
- *   'round-robin' → 'rr'  (time-shared using the quantum)
- *   'sjf'         → 'sjf' (shortest burst first, non-preemptive)
- *   anything else → 'fcfs' (first come, first served, non-preemptive)
- */
-function normaliseQueuePolicy(policy) {
-  if (policy === 'round-robin' || policy === 'rr') {
-    return 'rr';
-  }
-  if (policy === 'sjf') {
-    return 'sjf';
-  }
-  return 'fcfs';
-}
 
 export function multilevelQueue(processes, quantum = 4, queueConfig = null) {
   if (!processes || processes.length === 0) {
     return { gantt: [], log: [], processes: [], averages: { waiting: 0, turnaround: 0, response: 0, idleTime: 0 } };
   }
-
-  // Resolve the policy for each queue (config value, else the default)
-  const policies = {};
-  for (let q = 1; q <= 3; q++) {
-    let raw = DEFAULT_QUEUE_CONFIG[q];
-    if (queueConfig && queueConfig[q] !== undefined && queueConfig[q] !== null) {
-      raw = queueConfig[q];
-    }
-    policies[q] = normaliseQueuePolicy(raw);
-  }
-
-  const procs = createProcessCopy(processes);
-  const gantt = [];
-  const log = [];
-  let currentTime = 0;
-  let completedCount = 0;
-
+  const procs = copyProcesses(processes);
+  const sorted = [...procs].sort((a, b) => a.arrival - b.arrival || a.originalIndex - b.originalIndex);
+  const gantt = [], log = [];
   const queues = { 1: [], 2: [], 3: [] };
+  const policies = {
+    1: queueConfig?.[1] || DEFAULT_QUEUE_CONFIG[1],
+    2: queueConfig?.[2] || DEFAULT_QUEUE_CONFIG[2],
+    3: queueConfig?.[3] || DEFAULT_QUEUE_CONFIG[3]
+  };
 
-  const sorted = [];
-  for (let i = 0; i < procs.length; i++) {
-    sorted.push(procs[i]);
-  }
-  sorted.sort(function (a, b) {
-    if (a.arrival !== b.arrival) {
-      return a.arrival - b.arrival;
+  let currentTime = 0, completed = 0, nextIdx = 0;
+
+  const enqueueArrived = () => {
+    while (nextIdx < sorted.length && sorted[nextIdx].arrival <= currentTime) {
+      const p = sorted[nextIdx++];
+      queues[p.queue].push(p);
     }
-    return a.originalIndex - b.originalIndex;
-  });
+  };
 
-  let nextIdx = 0;
-  function addArrived(time) {
-    while (nextIdx < sorted.length && sorted[nextIdx].arrival <= time) {
-      const qNum = sorted[nextIdx].queue;
-      queues[qNum].push(sorted[nextIdx]);
-      nextIdx = nextIdx + 1;
-    }
-  }
+  while (completed < procs.length) {
+    enqueueArrived();
+    const activeQ = [1, 2, 3].find(q => queues[q].length > 0);
 
-  while (completedCount < procs.length) {
-    addArrived(currentTime);
-
-    // Pick highest priority non-empty queue: Queue 1 > Queue 2 > Queue 3
-    let highestQ = null;
-    if (queues[1].length > 0) {
-      highestQ = 1;
-    } else if (queues[2].length > 0) {
-      highestQ = 2;
-    } else if (queues[3].length > 0) {
-      highestQ = 3;
-    }
-
-    if (highestQ === null) {
+    if (!activeQ) {
       if (nextIdx >= sorted.length) break;
       const nextArrival = sorted[nextIdx].arrival;
       if (nextArrival > currentTime) {
         gantt.push({ pid: 'IDLE', start: currentTime, end: nextArrival, isIdle: true });
         currentTime = nextArrival;
-        continue;
       }
+      continue;
     }
 
-    // Pick which process in this queue runs next
-    const policy = policies[highestQ];
-    const queueArr = queues[highestQ];
+    const policy = policies[activeQ];
+    const qList = queues[activeQ];
+    let p;
 
-    let currentProc;
     if (policy === 'sjf') {
-      // Shortest job first within the queue: smallest burst,
-      // tie-break by arrival time, then input order
       let bestIdx = 0;
-      for (let i = 1; i < queueArr.length; i++) {
-        const a = queueArr[i];
-        const best = queueArr[bestIdx];
-        if (a.burst < best.burst ||
-            (a.burst === best.burst && a.arrival < best.arrival) ||
-            (a.burst === best.burst && a.arrival === best.arrival && a.originalIndex < best.originalIndex)) {
+      for (let i = 1; i < qList.length; i++) {
+        const a = qList[i], b = qList[bestIdx];
+        if (a.burst < b.burst || (a.burst === b.burst && (a.arrival < b.arrival || (a.arrival === b.arrival && a.originalIndex < b.originalIndex)))) {
           bestIdx = i;
         }
       }
-      currentProc = queueArr.splice(bestIdx, 1)[0];
+      p = qList.splice(bestIdx, 1)[0];
     } else {
-      // FCFS and RR both dispatch from the front of the queue
-      currentProc = queueArr.shift();
+      p = qList.shift();
     }
 
-    if (currentProc.isCompleted) continue;
+    if (policy === 'round-robin' || policy === 'rr') {
+      const runTime = Math.min(p.remainingBurst, quantum);
+      gantt.push({ pid: p.id, start: currentTime, end: currentTime + runTime, isIdle: false });
+      p.remainingBurst -= runTime;
+      currentTime += runTime;
 
-    if (currentProc.firstStartTime === null) {
-      currentProc.firstStartTime = currentTime;
-    }
-
-    if (policy === 'rr') {
-      // This queue runs Round Robin: one quantum per turn, re-queue if unfinished
-      let runTime = quantum;
-      if (currentProc.remainingBurst < quantum) {
-        runTime = currentProc.remainingBurst;
-      }
-      const endTime = currentTime + runTime;
-
-      gantt.push({ pid: currentProc.id, start: currentTime, end: endTime, isIdle: false });
-      currentProc.remainingBurst = currentProc.remainingBurst - runTime;
-      currentTime = endTime;
-
-      if (currentProc.remainingBurst === 0) {
-        currentProc.isCompleted = true;
-        completedCount = completedCount + 1;
-        log.push({ time: currentTime, event: 'finish', detail: `${currentProc.id} completed` });
+      if (p.remainingBurst === 0) {
+        p.isCompleted = true;
+        completed++;
+        log.push({ time: currentTime, event: 'finish', detail: `${p.id} completed` });
       } else {
-        queues[highestQ].push(currentProc);
+        queues[activeQ].push(p);
       }
     } else {
-      // FCFS / SJF queues are non-preemptive: run to completion
-      const endTime = currentTime + currentProc.burst;
-      gantt.push({ pid: currentProc.id, start: currentTime, end: endTime, isIdle: false });
-      currentTime = endTime;
-      currentProc.isCompleted = true;
-      completedCount = completedCount + 1;
-      log.push({ time: currentTime, event: 'finish', detail: `${currentProc.id} completed` });
+      gantt.push({ pid: p.id, start: currentTime, end: currentTime + p.burst, isIdle: false });
+      currentTime += p.burst;
+      p.isCompleted = true;
+      completed++;
+      log.push({ time: currentTime, event: 'finish', detail: `${p.id} completed` });
     }
   }
 
   const metrics = calculateMetrics(gantt, procs);
-  return { gantt: gantt, log: log, processes: metrics.processes, averages: metrics.averages };
+  return { gantt, log, processes: metrics.processes, averages: metrics.averages };
 }
 
-// ============== DISPATCHER ==============
-
 export function runScheduler(processes, algorithm, quantum = 4, queueConfig = null) {
-  if (algorithm === 'fcfs') {
-    return fcfs(processes);
-  }
-  if (algorithm === 'sjf') {
-    return sjf(processes);
-  }
-  if (algorithm === 'round-robin') {
-    return roundRobin(processes, quantum);
-  }
-  if (algorithm === 'multilevel-queue') {
-    return multilevelQueue(processes, quantum, queueConfig);
-  }
-
+  if (algorithm === 'fcfs') return fcfs(processes);
+  if (algorithm === 'sjf') return sjf(processes);
+  if (algorithm === 'round-robin') return roundRobin(processes, quantum);
+  if (algorithm === 'multilevel-queue') return multilevelQueue(processes, quantum, queueConfig);
   throw new Error(`Unknown algorithm: ${algorithm}`);
 }
